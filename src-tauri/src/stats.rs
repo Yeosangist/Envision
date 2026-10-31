@@ -1,4 +1,5 @@
 
+//! Aggregate index and app-data sizes for Settings; user image folders are not measured here.
 use crate::domain::{LibraryTotals, Stats};
 use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
@@ -13,6 +14,7 @@ pub enum StatsError {
 
 pub type Result<T> = std::result::Result<T, StatsError>;
 
+/// Counts SHA-256 groups with at least two assets and the extra copies beyond one.
 const DUPLICATES_SQL: &str = "SELECT COUNT(*), COALESCE(SUM(copies - 1), 0) FROM (
          SELECT COUNT(*) AS copies FROM assets
          WHERE sha256 IS NOT NULL
@@ -20,6 +22,7 @@ const DUPLICATES_SQL: &str = "SELECT COUNT(*), COALESCE(SUM(copies - 1), 0) FROM
          HAVING COUNT(*) > 1
      )";
 
+/// Count images, non-root folders, bytes, duplicate groups, and redundant copies.
 pub fn index_totals(path: &Path) -> Result<LibraryTotals> {
     let conn = Connection::open_with_flags(
         path,
@@ -46,6 +49,7 @@ pub fn index_totals(path: &Path) -> Result<LibraryTotals> {
     })
 }
 
+/// Recursively total regular files without following symbolic links.
 pub fn dir_size(path: &Path) -> Result<u64> {
     if !path.is_dir() {
         return Ok(0);
@@ -69,10 +73,12 @@ pub fn dir_size(path: &Path) -> Result<u64> {
     Ok(total)
 }
 
+/// Size of one file, or zero when it is not there.
 pub fn file_size(path: &Path) -> u64 {
     std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0)
 }
 
+/// Return zeroes for absent or unreadable indexes; log read failures to distinguish them from empty libraries.
 pub fn summary(index_path: &Path) -> LibraryTotals {
     if !index_path.is_file() {
         return LibraryTotals::default();
@@ -87,6 +93,7 @@ pub fn summary(index_path: &Path) -> LibraryTotals {
     }
 }
 
+/// Skip unopened libraries and mark unreadable indexes so aggregate totals can be reported incomplete.
 pub fn accumulate_index(stats: &mut Stats, index_path: &Path) {
     if !index_path.is_file() {
         return;
@@ -101,6 +108,8 @@ pub fn accumulate_index(stats: &mut Stats, index_path: &Path) {
             stats.library_bytes += totals.bytes;
         }
         Err(error) => {
+            // Logged rather than swallowed: a silent zero here looks exactly
+            // like an empty library.
             log::warn!("could not read index {}: {error}", index_path.display());
             stats.unreadable += 1;
         }
@@ -122,6 +131,7 @@ mod tests {
         dir
     }
 
+    /// A real index with a folder tree, a duplicate pair and a unique file.
     fn seeded_index(dir: &Path) -> PathBuf {
         let path = dir.join("index.db");
         let conn = crate::database::open(&path, crate::database::LIBRARY_MIGRATIONS).unwrap();
@@ -146,6 +156,7 @@ mod tests {
 
         let totals = index_totals(&path).unwrap();
         assert_eq!(totals.images, 3);
+        // The root is not one of the user's folders.
         assert_eq!(totals.folders, 2);
         assert_eq!(totals.bytes, 450);
         assert_eq!(totals.duplicate_groups, 1);
@@ -167,6 +178,8 @@ mod tests {
     fn a_library_without_an_index_is_skipped_not_blamed() {
         let dir = temp_dir("no-index");
         let mut stats = Stats::default();
+        // Present but not a database: the index file exists, so this one *is*
+        // a read failure and must be reported rather than counted as zero.
         std::fs::write(dir.join("index.db"), b"not a database").unwrap();
 
         accumulate_index(&mut stats, &dir.join("index.db"));
@@ -185,6 +198,7 @@ mod tests {
 
         assert_eq!(dir_size(&dir).unwrap(), 42);
 
+        // A link pointing back at the tree cannot make the walk unbounded.
         #[cfg(unix)]
         std::os::unix::fs::symlink(&dir, dir.join("loop")).unwrap();
         assert_eq!(dir_size(&dir).unwrap(), 42);

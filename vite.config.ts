@@ -46,6 +46,7 @@ function devThumbnails(): Plugin {
 
   return {
     name: 'envision-dev-thumbnails',
+    // Never part of a production bundle.
     apply: 'serve',
     configureServer(server) {
       if (!dataDir) {
@@ -61,6 +62,7 @@ function devThumbnails(): Plugin {
           const url = new URL(request.url ?? '/', 'http://localhost');
           const relative = decodeURIComponent(url.pathname);
 
+          // `mount` strips the prefix, but be defensive rather than assume it.
           const wanted = relative.startsWith(THUMB_PREFIX)
             ? relative.slice(THUMB_PREFIX.length)
             : relative;
@@ -84,9 +86,12 @@ function devThumbnails(): Plugin {
 
           const body = await readFile(file);
           response.setHeader('Content-Type', 'image/jpeg');
+          // Long enough that scrolling back over a folder costs nothing.
           response.setHeader('Cache-Control', 'private, max-age=3600');
           response.end(body);
         } catch {
+          // Missing thumbnail: 404 so the tile falls back to its placeholder
+          // rather than hanging, and so the miss is visible in the network tab.
           response.statusCode = 404;
           response.end('no thumbnail');
         }
@@ -95,10 +100,12 @@ function devThumbnails(): Plugin {
   };
 }
 
+// https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [devThumbnails()],
 
   clearScreen: false,
+  // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
     strictPort: true,
@@ -111,6 +118,7 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
+      // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
   },

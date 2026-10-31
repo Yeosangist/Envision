@@ -1,4 +1,5 @@
 
+//! Validate stored relative paths before accessing files under a library root.
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -12,10 +13,12 @@ pub enum PathError {
     NotFound(String),
 }
 
+/// Join safe relative components to `root`; for existing-file reads, follow with [`resolve_existing_within`] to reject symlinks.
 pub fn resolve_within(root: &Path, rel: &str) -> Result<PathBuf, PathError> {
     if rel.starts_with('/') || rel.starts_with('\\') {
         return Err(PathError::NotAllowed(rel.to_string()));
     }
+    // A Windows drive prefix such as `C:\` or a UNC path.
     let bytes = rel.as_bytes();
     if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic() {
         return Err(PathError::NotAllowed(rel.to_string()));
@@ -27,12 +30,13 @@ pub fn resolve_within(root: &Path, rel: &str) -> Result<PathBuf, PathError> {
         if raw.is_empty() {
             continue;
         }
+        // Reject anything that is not a plain name before it reaches the join.
         if raw == "."
             || raw == ".."
             || raw.contains('\0')
             || raw.contains('/')
             || raw.contains('\\')
-            || raw.ends_with(' ')   
+            || raw.ends_with(' ')   // Windows silently strips these
             || raw.ends_with('.')
         {
             return Err(PathError::NotAllowed(raw.to_string()));
@@ -43,6 +47,8 @@ pub fn resolve_within(root: &Path, rel: &str) -> Result<PathBuf, PathError> {
     Ok(resolved)
 }
 
+/// As [`resolve_within`], but the resulting path must exist and, after resolving
+/// symlinks, must still live under the canonicalized root.
 pub fn resolve_existing_within(root: &Path, rel: &str) -> Result<PathBuf, PathError> {
     let candidate = resolve_within(root, rel)?;
 
@@ -61,6 +67,7 @@ pub fn resolve_existing_within(root: &Path, rel: &str) -> Result<PathBuf, PathEr
 }
 
 
+/// Pick a free `name (n).ext` path, starting at 2; return `None` after a bounded search.
 pub fn unique_destination(dir: &Path, filename: &str) -> Option<PathBuf> {
     let candidate = dir.join(filename);
     if !candidate.exists() {
@@ -87,6 +94,8 @@ pub fn unique_destination(dir: &Path, filename: &str) -> Option<PathBuf> {
     None
 }
 
+/// Rename `filename` so it does not collide with `source`, using a numeric
+/// suffix. Used when moving a file into a folder that already holds that name.
 pub fn disambiguate(dir: &Path, source: &Path, filename: &str) -> Option<(PathBuf, bool)> {
     let target = dir.join(filename);
     if target == source || !target.exists() {

@@ -1,7 +1,9 @@
 
+/** Inline SVG icons; accessible names come from their containing controls. */
 import type { ReactNode, SVGProps } from 'react';
 
 export interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
+  /** Rendered size in CSS pixels; the box is square. */
   size?: number;
 }
 
@@ -67,6 +69,7 @@ export function CogIcon(props: IconProps) {
   );
 }
 
+/** A cross, for dismissing a panel. */
 export function CloseIcon(props: IconProps) {
   return (
     <Icon {...props}>

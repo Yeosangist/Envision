@@ -1,4 +1,5 @@
 
+//! SQLite setup for the app database and each library's rebuildable index.
 use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
 use thiserror::Error;
@@ -21,18 +22,21 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
+/// Schema for the global application database.
 pub const APP_MIGRATIONS: &[Migration] = &[Migration {
     version: 1,
     name: "001_app",
     sql: include_str!("../../migrations/001_app.sql"),
 }];
 
+/// Schema for a per-library query index.
 pub const LIBRARY_MIGRATIONS: &[Migration] = &[Migration {
     version: 1,
     name: "002_library",
     sql: include_str!("../../migrations/002_library.sql"),
 }];
 
+/// Use case-insensitive path comparison on macOS and Windows, case-sensitive elsewhere.
 pub const fn path_collation() -> &'static str {
     if cfg!(any(target_os = "windows", target_os = "macos")) {
         "NOCASE"
@@ -41,10 +45,12 @@ pub const fn path_collation() -> &'static str {
     }
 }
 
+/// Substitute the `{collation}` placeholder used by the migration files.
 pub fn render(sql: &str) -> String {
     sql.replace("{collation}", path_collation())
 }
 
+/// Open and migrate a database with WAL and a busy timeout.
 pub fn open(path: &Path, migrations: &[Migration]) -> Result<Connection> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -59,6 +65,7 @@ pub fn open(path: &Path, migrations: &[Migration]) -> Result<Connection> {
     Ok(conn)
 }
 
+/// Open a throwaway in-memory database with a schema applied. Used by tests.
 #[cfg(test)]
 pub fn open_in_memory(migrations: &[Migration]) -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
@@ -83,12 +90,15 @@ fn migrate(conn: &Connection, migrations: &[Migration]) -> Result<()> {
                 migration.name, migration.version
             ))
         })?;
+        // Stamp after the DDL so an interrupted upgrade re-runs it. Every
+        // statement is `IF NOT EXISTS`, so re-running is safe.
         conn.pragma_update(None, "user_version", migration.version)?;
     }
 
     Ok(())
 }
 
+/// Read a setting as text.
 pub fn read_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     let value = conn
         .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
@@ -98,6 +108,7 @@ pub fn read_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     Ok(value)
 }
 
+/// Write a setting as text.
 pub fn write_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2)
@@ -107,6 +118,7 @@ pub fn write_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Delete a setting row, preserving the distinction between unset and blank.
 pub fn delete_setting(conn: &Connection, key: &str) -> Result<()> {
     conn.execute("DELETE FROM settings WHERE key = ?1", [key])?;
     Ok(())
@@ -166,6 +178,7 @@ mod tests {
             assert_eq!(exists, 1, "table {table} is missing");
         }
 
+        // The columns the scan and query layers actually bind by position.
         let asset_columns: Vec<String> = {
             let mut stmt = conn.prepare("PRAGMA table_info(assets)").unwrap();
             let rows = stmt

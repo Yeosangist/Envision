@@ -2,7 +2,7 @@
 
 A local-first image viewer for desktop. Load folders of images you already have and see them in a responsive masonry grid you can rearrange freely.
 
-![](example.png)
+![](Assets/example.png)
 
 ## Features
 

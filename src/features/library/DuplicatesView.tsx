@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useLibraryStore } from '../../state/libraryStore';
 
+/** SHA-256 duplicates are surfaced without modifying or hiding any files. */
 export function DuplicatesView({ onOpenAsset }: { onOpenAsset: (assetId: number) => void }) {
   const { duplicates, loading, folderId } = useLibraryStore();
 

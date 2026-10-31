@@ -16,6 +16,7 @@ import {
 
 export type { ThemeMode };
 
+/** Temporary defaults, replaced by normalized backend settings on load. */
 const DEFAULTS: Settings = {
   theme: 'system',
   interface_scale: 1,
@@ -34,9 +35,12 @@ const DEFAULTS: Settings = {
   import_ask: true,
 };
 
+/** Per-machine desktop preferences. */
 interface SettingsState extends Settings {
   loaded: boolean;
+  /** Blob URL for the background image; its filesystem path stays in Rust. */
   backgroundUrl: string | null;
+  /** A failure worth showing, such as a background image that has gone away. */
   error: string | null;
   apply: (root: HTMLElement) => void;
   load: () => Promise<void>;
@@ -46,6 +50,7 @@ interface SettingsState extends Settings {
   dismissError: () => void;
 }
 
+/** The persisted fields alone, so store-only state never rides along to Rust. */
 function persisted(state: SettingsState): Settings {
   return {
     theme: state.theme,
@@ -75,6 +80,7 @@ function paletteOf(state: Settings): CustomPalette {
   };
 }
 
+/** Leave unknown image types unset so the browser can sniff their bytes. */
 function backgroundBlob(bytes: ArrayBuffer, name: string): Blob {
   const dot = name.lastIndexOf('.');
   const type = mimeFor(dot === -1 ? '' : name.slice(dot + 1));
@@ -111,6 +117,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   set: async (patch) => {
+    // Update immediately, then replace with backend-normalized settings.
     set(patch);
     get().apply(document.documentElement);
     try {
@@ -118,6 +125,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set(settings);
       get().apply(document.documentElement);
     } catch {
+    // Keep the in-memory value for this session if saving fails.
     }
   },
 
@@ -138,6 +146,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   dismissError: () => set({ error: null }),
 }));
 
+/** Publish the stored background as a blob URL; ignore missing files so they do not block startup. */
 async function refreshBackground(
   set: (partial: Partial<SettingsState>) => void,
   get: () => SettingsState,
@@ -161,6 +170,7 @@ async function refreshBackground(
   get().apply(document.documentElement);
 }
 
+/** React to the OS theme changing while the app is set to `system`. */
 export function watchSystemTheme(): () => void {
   const media = window.matchMedia('(prefers-color-scheme: dark)');
   const handler = () => {

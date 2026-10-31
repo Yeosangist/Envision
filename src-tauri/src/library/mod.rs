@@ -1,4 +1,5 @@
 
+//! Library registry and the open index handle; image collections are indexed in place.
 pub mod fingerprint;
 pub mod moves;
 pub mod queries;
@@ -43,6 +44,8 @@ pub enum LibraryError {
 
 pub type Result<T> = std::result::Result<T, LibraryError>;
 
+/// The open library: its resolved root, its derived index, and its thumbnail
+/// cache. Dropping this closes the SQLite handle.
 pub struct LibraryIndex {
     pub id: String,
     pub root: PathBuf,
@@ -51,6 +54,7 @@ pub struct LibraryIndex {
 }
 
 impl LibraryIndex {
+    /// Open (creating if absent) the derived index for a library.
     pub fn open(app: &AppHandle, id: &str, root: PathBuf) -> Result<Self> {
         let (index_path, thumbnails_dir) = crate::platform::ensure_library_dirs(app, id)?;
         let conn = database::open(&index_path, LIBRARY_MIGRATIONS)?;
@@ -63,6 +67,8 @@ impl LibraryIndex {
         })
     }
 
+    /// Create a handle that can be used from another thread.
+    /// This opens a new connection to the same database.
     pub fn clone_handle(&self, app: &AppHandle) -> Result<Self> {
         let index_path = crate::platform::library_index_path(app, &self.id)?;
         let conn = database::open(&index_path, LIBRARY_MIGRATIONS)?;
@@ -74,6 +80,8 @@ impl LibraryIndex {
         })
     }
 
+    /// Absolute path of an indexed asset, re-derived from the library root.
+    /// Returns `None` if the row is gone or its stored path is not safe.
     pub fn asset_path(&self, rel_path: &str) -> Result<Option<PathBuf>> {
         match crate::paths::resolve_within(&self.root, rel_path) {
             Ok(path) => Ok(Some(path)),
@@ -83,6 +91,7 @@ impl LibraryIndex {
         }
     }
 
+    /// Resolve an existing asset only if it remains under the canonical root after symlink resolution.
     pub fn asset_real_path(&self, rel_path: &str) -> Result<Option<PathBuf>> {
         match crate::paths::resolve_existing_within(&self.root, rel_path) {
             Ok(path) => Ok(Some(path)),
@@ -105,6 +114,7 @@ fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
     })
 }
 
+/// Register a canonical root or reuse its existing registration and index.
 pub fn add_library(conn: &Connection, name: Option<&str>, root: &Path) -> Result<Library> {
     let root = crate::platform::validate_library_root(root)?;
     let root_string = root.to_string_lossy().to_string();
@@ -144,6 +154,7 @@ pub fn add_library(conn: &Connection, name: Option<&str>, root: &Path) -> Result
     Ok(load_library(conn, &id)?.expect("library row was just written"))
 }
 
+/// List registrations by recent activity and mark missing roots for relinking or forgetting.
 pub fn list_libraries(conn: &Connection) -> Result<Vec<Library>> {
     let mut stmt = conn.prepare(&format!(
         "{SELECT_LIBRARY} ORDER BY COALESCE(last_opened_at, created_at) DESC"
@@ -174,6 +185,7 @@ pub fn load_library(conn: &Connection, id: &str) -> Result<Option<Library>> {
     Ok(library)
 }
 
+/// Update an existing registration to a validated root after its folder moves.
 pub fn relink_library(conn: &Connection, id: &str, new_root: &Path) -> Result<Library> {
     let root = crate::platform::validate_library_root(new_root)?;
 
@@ -202,6 +214,8 @@ pub fn relink_library(conn: &Connection, id: &str, new_root: &Path) -> Result<Li
     load_library(conn, id)?.ok_or_else(|| LibraryError::NotFound(id.to_string()))
 }
 
+/// Drop a library registration. This removes only Envision's derived data for
+/// that id; the user's images are never touched.
 pub fn forget_library(app: &AppHandle, conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM libraries WHERE id = ?1", [id])?;
     let _ = std::fs::remove_dir_all(crate::platform::library_dir(app, id)?);
@@ -209,6 +223,7 @@ pub fn forget_library(app: &AppHandle, conn: &Connection, id: &str) -> Result<()
 }
 
 
+/// Keep cover identity for backend cache-key construction without serializing it to the UI.
 struct FolderRow {
     folder: Folder,
     cover_asset_id: Option<i64>,
@@ -241,6 +256,7 @@ const SELECT_FOLDER: &str = "
              ORDER BY a.position ASC, a.id ASC LIMIT 1) AS cover_sha256
     FROM folders f";
 
+/// Attach a cover URL only when its thumbnail exists; otherwise the UI uses a placeholder.
 fn attach_folder_covers(index: &LibraryIndex, rows: &mut [FolderRow]) {
     for row in rows.iter_mut() {
         row.folder.cover_url = match row.cover_asset_id {
@@ -273,6 +289,7 @@ pub fn root_folder(index: &LibraryIndex) -> Result<Folder> {
         })
 }
 
+/// List direct children by name; `None` selects the root's children, not the root itself.
 pub fn list_child_folders(index: &LibraryIndex, parent_id: Option<i64>) -> Result<Vec<Folder>> {
     let parent_id = match parent_id {
         Some(id) => id,
@@ -292,11 +309,14 @@ pub fn list_child_folders(index: &LibraryIndex, parent_id: Option<i64>) -> Resul
     Ok(rows.into_iter().map(|row| row.folder).collect())
 }
 
+/// Every folder in the library, used to build breadcrumbs and the folder picker.
 pub fn list_all_folders(index: &LibraryIndex) -> Result<Vec<Folder>> {
     let mut stmt = index.conn.prepare(&format!("{SELECT_FOLDER} ORDER BY f.rel_path"))?;
     let folders = stmt
         .query_map([], folder_from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    // Covers are deliberately not attached here: this feeds breadcrumbs and the
+    // folder picker, neither of which renders one.
     Ok(folders.into_iter().map(|row| row.folder).collect())
 }
 
@@ -327,6 +347,7 @@ pub fn folder_by_rel(index: &LibraryIndex, rel: &str) -> Result<Option<Folder>> 
     Ok(folder.map(|row| row.folder))
 }
 
+/// Ancestors of `id`, outermost first, ending with the folder itself.
 pub fn folder_ancestry(index: &LibraryIndex, id: i64) -> Result<Vec<Folder>> {
     let mut chain = Vec::new();
     let mut cursor = Some(id);
@@ -371,6 +392,7 @@ impl AppState {
         f(&guard)
     }
 
+    /// Run a synchronous callback under the open-library mutex; never hold it across an await.
     pub fn with_index<T>(&self, f: impl FnOnce(&LibraryIndex) -> Result<T>) -> Result<T> {
         let guard = self.open.lock().map_err(poisoned)?;
         match guard.as_ref() {
@@ -379,6 +401,7 @@ impl AppState {
         }
     }
 
+    /// Open a library, replacing (and closing) whatever was open before.
     pub fn open_library(&self, id: &str) -> Result<Library> {
         let library = self
             .with_app_db(|conn| load_library(conn, id))?
@@ -387,6 +410,8 @@ impl AppState {
         let root = crate::platform::validate_library_root(Path::new(&library.root_path))
             .map_err(|error| LibraryError::Invalid(error.to_string()))?;
 
+        // Close the previous library first so no stale handle or cached
+        // absolute path survives the switch.
         {
             let mut open = self.open.lock().map_err(poisoned)?;
             *open = None;
@@ -457,14 +482,18 @@ impl AppState {
         }
     }
 
+    /// Whether a scan is currently in flight.
     pub fn has_scan(&self) -> bool {
         self.scan.lock().map(|slot| slot.is_some()).unwrap_or(false)
     }
 
+    /// Inspect the in-flight scan, if any.
     pub fn with_scan<T>(&self, f: impl FnOnce(&scan::ScanHandle) -> T) -> T {
         match self.scan.lock() {
             Ok(slot) => match slot.as_ref() {
                 Some(handle) => f(handle),
+                // No run in progress: a fresh handle reports "not cancelled",
+                // which reads correctly as "nothing to cancel".
                 None => f(&scan::ScanHandle::new()),
             },
             Err(_) => f(&scan::ScanHandle::new()),
@@ -476,6 +505,7 @@ fn poisoned<T>(_: T) -> LibraryError {
     LibraryError::Invalid("internal lock was poisoned by a previous panic".into())
 }
 
+// Re-exported so command handlers can stay thin.
 pub use moves::{create_folder, move_assets, rename_folder};
 pub use queries::{
     asset_by_id, duplicate_summary, list_assets, list_duplicates, reorder_assets,
@@ -538,6 +568,7 @@ mod tests {
         assert_eq!(libraries.len(), 1);
         assert!(libraries[0].missing, "a vanished root must be flagged");
 
+        // Relinking restores it without changing identity.
         let moved = temp_dir("vanishing-moved");
         let relinked = relink_library(&conn, &libraries[0].id, &moved).unwrap();
         assert!(!relinked.missing);
@@ -586,12 +617,17 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// `forget_library` needs an `AppHandle` for the on-disk cache; this helper
+    /// exercises just the registration half.
     fn forget_library_pathless(conn: &Connection, id: &str) -> Result<()> {
         conn.execute("DELETE FROM libraries WHERE id = ?1", [id])?;
         Ok(())
     }
 
 
+    // --- folder tree, including the root query that binds no parameters ---
+    /// An index seeded with a root and three nested folders, plus one image in
+    /// each so folder counts can be checked too.
     fn seeded_index(tag: &str) -> LibraryIndex {
         let index = crate::library::queries::tests_support::index();
         index
@@ -631,6 +667,7 @@ mod tests {
         index
     }
 
+    /// Regression: root listing must avoid an unbound SQLite parameter and exclude the root itself.
     #[test]
     fn root_children_are_listed_without_binding_a_parameter() {
         let index = seeded_index("root");
@@ -670,6 +707,9 @@ mod tests {
     }
 
 
+    // --- folder covers ------------------------------------------------------
+    /// A folder row with three images, the first of which is undecodable, so
+    /// the cover must skip it.
     fn cover_index(tag: &str) -> LibraryIndex {
         let index = seeded_index(tag);
         index
@@ -700,7 +740,9 @@ mod tests {
             rows
         };
 
+        // Position 0 is an undecodable HEIC; position 1 is the first real image.
         assert_eq!(rows[0].cover_asset_id, Some(2), "skips the HEIC");
+        // No thumbnail is cached in this fixture, so nothing is advertised.
         assert_eq!(rows[0].folder.cover_url, None);
     }
 

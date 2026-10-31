@@ -36,6 +36,8 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
   const ancestry = useMemo(() => ancestryOf(folders, folderId), [folders, folderId]);
 
   const sensors = useSensors(
+    // A short distance threshold keeps a click from starting a drag, so opening
+    // the lightbox and rearranging the grid share one gesture.
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
   );
@@ -49,6 +51,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
 
       const overId = over.id;
 
+      // Dropped on a folder card: this one really does move the file.
       if (typeof overId === 'string' && overId.startsWith('folder:')) {
         const target = Number(overId.slice('folder:'.length));
         const assetIds = selected.size > 0 ? [...selected] : [Number(active.id)];
@@ -56,6 +59,8 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
         return;
       }
 
+      // Dropped on a tile: reorder, which writes positions to the index and
+      // touches nothing on disk.
       if (typeof overId !== 'number' || active.id === overId) return;
 
       const from = ids.indexOf(Number(active.id));

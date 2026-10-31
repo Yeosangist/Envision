@@ -1,4 +1,5 @@
 
+//! Hash complete file bytes with SHA-256; size and mtime only decide when to re-read.
 use super::{LibraryIndex, Result};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
@@ -8,8 +9,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const READ_BUFFER: usize = 128 * 1024;
+/// Rows buffered before flushing a batch write.
 const WRITE_BATCH: usize = 64;
 
+/// Stream a file through a fixed buffer and return its complete SHA-256.
 pub fn fingerprint_file(path: &Path) -> Result<String> {
     let file = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::with_capacity(READ_BUFFER, file);
@@ -27,6 +30,7 @@ pub fn fingerprint_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// Handle used to stop an in-flight fingerprint run.
 #[derive(Clone, Default)]
 pub struct Cancel(Arc<AtomicBool>);
 
@@ -44,11 +48,14 @@ impl Cancel {
     }
 }
 
+/// One file waiting to be fingerprinted.
 pub struct Pending {
     pub asset_id: i64,
     pub path: PathBuf,
 }
 
+/// Fingerprint pending files on blocking worker threads, reporting progress and checking cancellation between files.
+/// Files that disappear during the run are skipped rather than failing the batch.
 pub fn fingerprint_all<P>(
     index: &LibraryIndex,
     pending: Vec<Pending>,
@@ -81,6 +88,8 @@ where
         let cancel = cancel.clone();
         handles.push(std::thread::spawn(move || {
             loop {
+                // Checked between files so a stop takes effect promptly without
+                // ever interrupting a read partway through.
                 if cancel.is_cancelled() {
                     break;
                 }
@@ -100,6 +109,8 @@ where
     let mut completed = 0u64;
     let mut batch: Vec<(i64, String)> = Vec::with_capacity(WRITE_BATCH);
 
+    // The channel closes only once every worker has finished, so this loop ends
+    // when the run genuinely is over rather than when the queue empties.
     while let Ok((job, hash)) = rx.recv() {
         match hash {
             Some(hash) => {
@@ -156,6 +167,8 @@ pub struct FingerprintOutcome {
     pub elapsed: std::time::Duration,
 }
 
+/// A row as the scanner last recorded it, used to decide whether a file needs
+/// re-reading.
 struct FingerprintState {
     id: i64,
     rel_path: String,
@@ -164,6 +177,7 @@ struct FingerprintState {
     sha256: Option<String>,
 }
 
+/// Queue unhashed assets and those whose size or mtime changed; SHA-256 of read bytes remains the identity.
 pub fn collect_pending(index: &LibraryIndex) -> Result<Vec<Pending>> {
     let states: Vec<FingerprintState> = {
         let mut stmt = index.conn.prepare(
@@ -188,10 +202,12 @@ pub fn collect_pending(index: &LibraryIndex) -> Result<Vec<Pending>> {
     let mut refreshed: Vec<(i64, i64)> = Vec::new();
 
     for state in states {
+        // The stored rel_path is untrusted input; re-derive and validate it.
         let Some(path) = index.asset_path(&state.rel_path)? else {
             continue;
         };
         let Ok(metadata) = std::fs::metadata(&path) else {
+            // Gone; the scan pass is responsible for removing the row.
             continue;
         };
 
@@ -224,6 +240,7 @@ pub fn collect_pending(index: &LibraryIndex) -> Result<Vec<Pending>> {
     Ok(pending)
 }
 
+/// Hashing bytes in isolation, for tests.
 #[cfg(test)]
 pub fn fingerprint_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();

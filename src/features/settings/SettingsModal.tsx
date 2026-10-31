@@ -9,6 +9,7 @@ import { THEME_MODES, isThemeMode } from './theme';
 import { thumbnailCpuOptions } from './cpu';
 import { formatBytes, formatDuration } from './format';
 
+/** Debounce streamed controls to avoid a database write for every pointer event. */
 const COMMIT_DELAY_MS = 150;
 
 const THEME_LABELS: Record<ThemeMode, { label: string; hint: string }> = {
@@ -32,6 +33,7 @@ const TABS: { id: Tab; label: string }[] = [
 
 export interface SettingsModalProps {
   onClose: () => void;
+  /** Milliseconds from page load to the app's first render. */
   readyMs: number;
 }
 
@@ -190,6 +192,7 @@ function AppearanceTab() {
             <span className="settings-field-label">Background image</span>
             {backgroundImage ? (
               <div className="settings-image">
+                {/* Use a background image so a missing preview does not show a broken-image icon. */}
                 <span
                   className="settings-image-preview"
                   style={backgroundUrl ? { backgroundImage: `url("${backgroundUrl}")` } : undefined}
@@ -257,6 +260,7 @@ function AppearanceTab() {
   );
 }
 
+/** Colour input that debounces streamed picker values. */
 function ColourField({
   label,
   value,
@@ -269,6 +273,7 @@ function ColourField({
   const [local, setLocal] = useState(value);
   const commit = useDeferredCommit(onChange);
 
+  // Sync local input state after theme changes or backend normalization.
   useEffect(() => {
     setLocal(value);
   }, [value]);

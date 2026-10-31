@@ -4,6 +4,7 @@ import type { Folder } from '../types';
 export interface AncestryProps {
   ancestry: Folder[];
   onNavigate: (folderId: FolderId) => void;
+  /** Trailing text, e.g. a live result count. */
   suffix?: string;
 }
 

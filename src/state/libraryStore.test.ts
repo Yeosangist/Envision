@@ -35,11 +35,14 @@ describe('resolveFolderId', () => {
   });
 
   it('does not mistake a nested folder for the root', () => {
+    // Only `rel_path === ''` is the root; a folder merely named "Library" is not.
     const decoy = [folder(7, 'Library', 1), folder(8, 'Trips', 7)];
     expect(() => resolveFolderId(null, decoy)).toThrow(CommandError);
   });
 
   it('typechecks: null is the root sentinel, 0 is a real id', () => {
+    // Guards the `??`-vs-truthiness trap: folder id 0 must not be treated as
+    // "unset" and silently redirected to the root.
     const ids: FolderId[] = [null, 0, 1];
     expect(ids.map((id) => id === null)).toEqual([true, false, false]);
     expect(resolveFolderId(0, tree)).toBe(0);

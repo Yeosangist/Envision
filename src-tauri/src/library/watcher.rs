@@ -1,15 +1,20 @@
 
+//! Debounce filesystem changes and ask the UI to rescan; the watcher never writes the index.
 use notify::{EventKind, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
+/// Quiet period after the last filesystem event before a rescan is suggested.
 const DEBOUNCE: Duration = Duration::from_millis(700);
+/// Upper bound on how long a continuous stream of events can postpone a rescan.
 const MAX_DEFER: Duration = Duration::from_secs(5);
 
+/// Event name the UI subscribes to.
 pub const CHANGED_EVENT: &str = "library:changed";
 
+/// Holds a live watcher. Dropping it stops watching.
 pub struct WatcherHandle {
     _watcher: notify::RecommendedWatcher,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -17,16 +22,22 @@ pub struct WatcherHandle {
 
 impl Drop for WatcherHandle {
     fn drop(&mut self) {
+        // Closing the sender ends the receiver's loop; the thread is detached so
+        // a slow event never blocks library switching.
         if let Some(thread) = self.thread.take() {
             let _ = thread;
         }
     }
 }
 
+/// Begin watching `root` recursively, emitting [`CHANGED_EVENT`] after a quiet
+/// period.
 pub fn start(app: AppHandle, library_id: String, root: PathBuf) -> notify::Result<WatcherHandle> {
     let (tx, rx) = channel::<notify::Result<notify::Event>>();
 
     let mut watcher = notify::recommended_watcher(move |event| {
+        // Bounded channel: if the debounce thread is busy, dropping an
+        // intermediate event is correct, because the next one will re-arm it.
         let _ = tx.send(event);
     })?;
 
@@ -67,6 +78,7 @@ fn debounce_loop(
             }
             Ok(Err(_)) => continue,
             Err(RecvTimeoutError::Timeout) => {}
+            // The sender was dropped, which means the watcher is shutting down.
             Err(RecvTimeoutError::Disconnected) => break,
         }
 
@@ -87,13 +99,18 @@ fn debounce_loop(
     }
 }
 
+/// Filter out the noise a desktop generates: thumbnails written by other apps,
+/// lock files, and the churn of unrelated metadata.
 fn is_interesting(event: &notify::Event) -> bool {
     match event.kind {
+        // Access events fire constantly from file managers merely previewing a
+        // folder; they never represent a change worth rescanning for.
         EventKind::Access(_) => false,
         _ => true,
     }
 }
 
+/// Reduce a changed path to something the UI can describe briefly.
 fn describe(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_string_lossy().to_string();
     if name.ends_with("~") || name.starts_with(".goutputstream") || name.ends_with(".tmp") {

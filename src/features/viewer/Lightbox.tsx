@@ -19,12 +19,15 @@ export interface LightboxProps {
   onOpenExternally?: (assetId: number) => void;
 }
 
+/** Fetch full-resolution bytes by asset id and revoke the previous object URL. */
 function useImageUrl(asset: Asset | null): { url: string | null; loading: boolean } {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const requestId = useRef(0);
 
   useEffect(() => {
+    // Bumping the id invalidates any in-flight request for the previous image,
+    // so a fast arrow-key run cannot land the wrong picture on screen.
     const ticket = ++requestId.current;
     let revoked: string | null = null;
 
@@ -76,6 +79,7 @@ export function Lightbox({
 
   const reset = useCallback(() => setMatrix(IDENTITY), []);
 
+  // Reset on open and again on close, so the next visit starts at fit.
   useEffect(() => {
     reset();
   }, [currentId, reset]);
@@ -145,6 +149,8 @@ export function Lightbox({
     const rect = viewport.getBoundingClientRect();
     const dx = event.clientX - rect.left - origin.pointerX;
     const dy = event.clientY - rect.top - origin.pointerY;
+    // Pan is a screen-space delta: the cursor should carry the image with it
+    // one-for-one at any zoom, which is what `panBy` composes for.
     setMatrix(clampPan(panBy(origin.matrix, dx, dy)));
   }, []);
 

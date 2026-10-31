@@ -13,13 +13,16 @@ import {
 } from '../api/invoke';
 import { CommandError, type Asset, type DuplicateGroup, type Folder, type Library } from '../types';
 
+/** `null` stands for the library root. */
 export type FolderId = number | null;
 
 export type View = 'browse' | 'duplicates';
 
 interface LibraryState {
   library: Library | null;
+  /** Every folder in the library, used for breadcrumbs and the folder picker. */
   folders: Folder[];
+  /** Child folders of the current one. */
   childFolders: Folder[];
   folderId: FolderId;
   assets: Asset[];
@@ -32,6 +35,7 @@ interface LibraryState {
 
   loading: boolean;
   scanning: boolean;
+  /** Time from opening a library to showing its grid, including its first scan. */
   lastOpenMs: number | null;
   error: string | null;
   notice: string | null;
@@ -82,6 +86,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const library = await openLibrary(libraryId);
       set({ library, folderId: null, history: [], future: [], view: 'browse' });
 
+      // Scan first because it creates the folder rows needed by refresh.
       await get().rescan();
       await get().refresh();
       set({ lastOpenMs: performance.now() - started });
@@ -101,6 +106,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       folderId: null,
       history: [],
       future: [],
+      // Do not leave the shell busy after closing the library.
       scanning: false,
       loading: false,
     });
@@ -163,6 +169,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
   },
 
+  /** Refresh assets and duplicate badges when background fingerprinting ends. */
   rescanFinished: async () => {
     set({ scanning: false });
     await get().refresh();
@@ -175,6 +182,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     set({ loading: true });
     try {
+      // Load folders first so the root id is available for the asset query.
       const folders = await listFolders();
       set({ folders });
 
@@ -186,10 +194,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
       set({ assets, childFolders });
 
+      // Prioritize thumbnail generation for the current folder
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         void invoke('generate_thumbnails_for_folder_cmd', { folderId: resolved });
       } catch {
+      // best effort
       }
     } catch (error) {
       set({ error: message(error) });
@@ -202,11 +212,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set({ scanning: true });
     try {
       await scanLibrary();
+    // Keep the busy state until background fingerprinting ends.
     } catch (error) {
       set({ scanning: false, error: message(error) });
     }
   },
 
+  /** Apply order optimistically and restore it if persistence fails. */
   setOrder: async (orderedIds) => {
     const previous = get().assets;
     const byId = new Map(previous.map((asset) => [asset.id, asset]));
@@ -254,6 +266,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   dismissError: () => set({ error: null }),
 }));
 
+/** Resolve navigation's `null` root sentinel to its indexed folder ID. */
 export function resolveFolderId(folderId: FolderId, folders: Folder[]): number {
   if (folderId !== null) return folderId;
 
@@ -264,6 +277,7 @@ export function resolveFolderId(folderId: FolderId, folders: Folder[]): number {
   return root.id;
 }
 
+/** Ancestors of a folder, outermost first, for the breadcrumb. */
 export function ancestryOf(folders: Folder[], folderId: FolderId): Folder[] {
   const byId = new Map(folders.map((folder) => [folder.id, folder]));
   const chain: Folder[] = [];
@@ -278,6 +292,7 @@ export function ancestryOf(folders: Folder[], folderId: FolderId): Folder[] {
   return chain;
 }
 
+/** Folder whose `rel_path` is `rel`, if it is indexed. */
 export function folderFor(folders: Folder[], rel: string): Folder | undefined {
   return folders.find((folder) => folder.rel_path === rel);
 }

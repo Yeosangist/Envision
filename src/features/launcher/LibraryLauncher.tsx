@@ -15,6 +15,7 @@ export interface LibraryLauncherProps {
   onOpenSettings: () => void;
 }
 
+/** "123 images · 3 sections", from the per-library counts. */
 function describeCounts(summary: LibrarySummary | undefined): string {
   const images = summary?.images ?? 0;
   const folders = summary?.folders ?? 0;
@@ -41,6 +42,7 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
       setLoading(false);
     }
 
+    // Load counts separately so unavailable summaries never block the library list.
     try {
       const counts = await librarySummaries();
       setSummaries(Object.fromEntries(counts.map((summary) => [summary.id, summary])));

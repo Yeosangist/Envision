@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { ScanProgress } from '../types';
 
+/** How long a finished scan stays up before getting out of the way. */
 const DISMISS_AFTER_MS = 4000;
 
 const isTerminal = (phase: ScanProgress['phase']) =>
   phase === 'done' || phase === 'cancelled' || phase === 'failed';
 
+/** Shows scan progress and dismisses terminal states after a short delay. */
 export function ScanIndicator({ progress }: { progress: ScanProgress | null }) {
   const [dismissed, setDismissed] = useState(false);
 

@@ -1,4 +1,5 @@
 
+//! Per-library thumbnail cache, keyed by content hash so identical files share work.
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use thiserror::Error;
@@ -13,6 +14,7 @@ pub enum ThumbnailError {
 
 pub type Result<T> = std::result::Result<T, ThumbnailError>;
 
+/// Map nonpositive limits to all cores; cap positive limits to available cores and return at least one.
 pub fn worker_count_for(limit: i64, available: usize) -> usize {
     let available = available.max(1);
     if limit <= 0 {
@@ -22,6 +24,7 @@ pub fn worker_count_for(limit: i64, available: usize) -> usize {
     }
 }
 
+/// The worker count for this machine.
 pub fn worker_count(limit: i64) -> usize {
     worker_count_for(
         limit,
@@ -31,6 +34,7 @@ pub fn worker_count(limit: i64) -> usize {
     )
 }
 
+/// One process-wide pool enforces the thumbnail worker limit across concurrent batches.
 struct WorkerPool {
     threads: usize,
     pool: Arc<rayon::ThreadPool>,
@@ -41,6 +45,7 @@ fn shared_pool() -> &'static Mutex<Option<WorkerPool>> {
     POOL.get_or_init(|| Mutex::new(None))
 }
 
+/// Rebuild the shared pool when its limit changes; existing batches drain on the old pool.
 fn pool_for(threads: usize) -> Option<Arc<rayon::ThreadPool>> {
     let mut current = shared_pool().lock().ok()?;
     if let Some(existing) = current.as_ref() {
@@ -70,6 +75,7 @@ fn pool_for(threads: usize) -> Option<Arc<rayon::ThreadPool>> {
     }
 }
 
+/// Run on the configurable local pool, falling back to uncapped work if pool creation fails.
 pub fn with_worker_pool<T, F>(limit: i64, work: F) -> T
 where
     T: Send,
@@ -81,16 +87,21 @@ where
     }
 }
 
+/// Canonical thumbnail width; bump `CACHE_VERSION` if rendered dimensions change.
 pub const CANONICAL_WIDTH: u32 = 384;
 
+/// JPEG quality for grid thumbnails; lower values encode faster with less detail.
 const QUALITY: u8 = 75;
 
+/// Bump when dimensions or encoding change so content-keyed caches regenerate.
 pub const CACHE_VERSION: u32 = 3;
 
+/// The versioned root of the cache for a library.
 fn versioned_dir(cache_dir: &Path) -> PathBuf {
     cache_dir.join(format!("v{CACHE_VERSION}"))
 }
 
+/// Build a sharded cache path from a SHA-256 key or a stable `pending-<id>` key.
 pub fn path_for(cache_dir: &Path, key: &str) -> Option<PathBuf> {
     if key.len() < 4 || key.contains('/') || key.contains('\\') || key.contains('\0') {
         return None;
@@ -104,12 +115,14 @@ pub fn path_for(cache_dir: &Path, key: &str) -> Option<PathBuf> {
     Some(versioned_dir(cache_dir).join(&key[..2]).join(format!("{key}.jpg")))
 }
 
+/// True when a usable thumbnail is already cached.
 pub fn is_cached(cache_dir: &Path, sha256: &str) -> bool {
     path_for(cache_dir, sha256).is_some_and(|path| {
         path.metadata().map(|meta| meta.len() > 0).unwrap_or(false)
     })
 }
 
+/// Render or reuse a cached thumbnail and return its path and dimensions.
 pub fn ensure(
     cache_dir: &Path,
     sha256: &str,
@@ -117,6 +130,7 @@ pub fn ensure(
     decode_ok: bool,
 ) -> Result<Option<(PathBuf, u32, u32)>> {
     if !decode_ok {
+        // Formats Envision does not decode get a placeholder tile instead.
         return Ok(None);
     }
     let Some(destination) = path_for(cache_dir, sha256) else {
@@ -136,6 +150,8 @@ pub fn ensure(
         log::warn!("Slow decode: {decode_time:?} for {source:?}");
     }
 
+    // Use thumbnail() for fast downscaling - it's optimized for this use case
+    // and uses a faster algorithm than resize()
     let resize_start = std::time::Instant::now();
     let thumbnail = if image.width() > CANONICAL_WIDTH || image.height() > CANONICAL_WIDTH {
         image.thumbnail(CANONICAL_WIDTH, CANONICAL_WIDTH)
@@ -151,6 +167,8 @@ pub fn ensure(
         std::fs::create_dir_all(parent)?;
     }
 
+    // Stage then rename so a crash mid-encode never leaves a truncated JPEG
+    // that later reads would happily serve.
     let staging = destination.with_extension("staging.jpg");
     let encode_start = std::time::Instant::now();
     let encoded: std::io::Result<()> = (|| {
@@ -183,9 +201,11 @@ fn dimensions_of(path: &Path) -> Option<(u32, u32)> {
     image::image_dimensions(path).ok()
 }
 
+/// Explicitly remove stale hashes and superseded cache versions; never prune automatically.
 pub fn prune(cache_dir: &Path, live_hashes: &[String]) -> Result<u64> {
     let mut removed = 0;
 
+    // Superseded versions are stale by definition.
     if let Ok(entries) = std::fs::read_dir(cache_dir) {
         for entry in entries.filter_map(|entry| entry.ok()) {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -222,6 +242,7 @@ pub fn prune(cache_dir: &Path, live_hashes: &[String]) -> Result<u64> {
             }
         }
 
+        // Reclaim the shard directory once it is empty.
         if std::fs::read_dir(&shard_path).is_ok_and(|mut d| d.next().is_none()) {
             std::fs::remove_dir(&shard_path).ok();
         }
@@ -259,6 +280,7 @@ mod tests {
         assert_eq!(worker_count_for(2, 0), 1, "always at least one worker");
     }
 
+    /// Regression: concurrent thumbnail batches must share the configured worker ceiling.
     #[test]
     fn a_limit_is_a_shared_ceiling_across_concurrent_batches() {
         use rayon::prelude::*;
@@ -313,6 +335,8 @@ mod tests {
         let dir = Path::new("/cache");
         let path = path_for(dir, HASH).unwrap();
 
+        // Version segment first, so a size or quality change invalidates
+        // everything at once instead of leaving stale thumbnails in place.
         assert_eq!(
             path.parent().unwrap(),
             Path::new("/cache").join(format!("v{CACHE_VERSION}")).join("aa")
@@ -332,6 +356,8 @@ mod tests {
 
     #[test]
     fn pending_keys_get_a_cache_path_too() {
+        // A file that has not been fingerprinted yet still needs somewhere to
+        // cache, or every tile request would re-decode.
         let key = "pending-0000000000000042";
         assert!(path_for(Path::new("/cache"), key).is_some());
     }
@@ -352,10 +378,12 @@ mod tests {
             .unwrap();
 
         assert!(path.is_file());
+        // 800x400 is 2:1, so bounding it to 384 wide gives 384x192.
         assert_eq!(width, CANONICAL_WIDTH);
         assert_eq!(height, 192, "aspect ratio is preserved");
         assert!(is_cached(&cache, HASH));
 
+        // A second call is a cache hit: same path, no re-encode.
         let (again, _, _) = ensure(&cache, HASH, &image_path, true).unwrap().unwrap();
         assert_eq!(again, path);
 
@@ -382,6 +410,7 @@ mod tests {
 
         assert!(path.is_file());
         assert_eq!(width, CANONICAL_WIDTH);
+        // 900x600 is 3:2, bounded to 384 wide gives 384x256.
         assert_eq!(height, 256, "aspect ratio comes from the real pixels");
         assert!(is_cached(&cache, &other));
 
@@ -496,6 +525,7 @@ mod tests {
         std::fs::create_dir_all(current.parent().unwrap()).unwrap();
         std::fs::write(&current, b"x").unwrap();
 
+        // An older version's worth of entries.
         let stale_dir = cache.join("v1").join(&live[..2]);
         std::fs::create_dir_all(&stale_dir).unwrap();
         std::fs::write(stale_dir.join(format!("{live}.jpg")), b"x").unwrap();

@@ -35,6 +35,7 @@ describe('normalizeHex', () => {
   });
 
   it('rejects three-digit shorthand', () => {
+    // Expanding it silently would hide a typo rather than surface it.
     expect(normalizeHex('#f00', '#123456')).toBe('#123456');
   });
 });
@@ -76,6 +77,7 @@ describe('resolveTheme', () => {
 
   it('recognises only the modes it can render', () => {
     expect(isThemeMode('oled')).toBe(true);
+    // The palette this was renamed from must not slip through unresolved.
     expect(isThemeMode('dark')).toBe(false);
     expect(isThemeMode('')).toBe(false);
   });
@@ -104,6 +106,7 @@ describe('deriveCustomTokens', () => {
     expect(relativeLuminance(tokens['--surface-2'])).toBeLessThan(
       relativeLuminance(tokens['--bg']),
     );
+    // So a light custom theme still gets light scrollbars and form controls.
     expect(tokens['color-scheme']).toBe('light');
     expect(tokens['--danger']).toBe('#b91c1c');
   });
@@ -118,6 +121,8 @@ describe('deriveCustomTokens', () => {
   });
 
   it('sets exactly the properties applyTheme knows how to clear', () => {
+    // Drift here would leave a stale custom colour on the document element
+    // after switching to a fixed palette.
     expect(Object.keys(deriveCustomTokens(PALETTE)).sort()).toEqual([...CUSTOM_TOKENS].sort());
   });
 
@@ -135,6 +140,7 @@ describe('deriveCustomTokens', () => {
   });
 });
 
+/** The smallest stand-in for the document element the apply step touches. */
 function fakeRoot() {
   const classes = new Set<string>();
   const properties = new Map<string, string>();

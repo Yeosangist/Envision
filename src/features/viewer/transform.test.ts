@@ -16,6 +16,7 @@ import {
   zoomAt,
 } from './transform';
 
+/** A panned, 2x-zoomed view, to exercise anchoring away from identity. */
 const ZOOMED_VIEW = multiply(translate(-40, 25), scaleAbout(0, 0, 2));
 
 describe('scaleAbout', () => {
@@ -30,11 +31,15 @@ describe('scaleAbout', () => {
 
 describe('zoomAt', () => {
   it('changes the scale, not just the position', () => {
+    // The whole bug in one assertion: this used to return a pure translation,
+    // so the scale stayed at 1 and "zooming" only slid the image sideways.
     const zoomed = zoomAt(IDENTITY, 100, 50, ZOOM_STEP);
     expect(scaleOf(zoomed)).toBeCloseTo(ZOOM_STEP, 6);
   });
 
   it('keeps the pixel under the cursor fixed', () => {
+    // The cursor sits over a screen point; the local point currently rendered
+    // there has to stay rendered there, in both directions.
     const screen: [number, number] = [312, 180];
     const k = scaleOf(ZOOMED_VIEW);
     const local: [number, number] = [
@@ -80,6 +85,8 @@ describe('zoomAt', () => {
 
 describe('panBy', () => {
   it('moves the image exactly as far as the cursor travelled', () => {
+    // One-for-one at any zoom. Composing the delta on the wrong side scaled it
+    // by the zoom factor, so a drag overshot when zoomed in.
     const before = applyToPoint(ZOOMED_VIEW, 123, 456);
     const after = applyToPoint(panBy(ZOOMED_VIEW, 30, -18), 123, 456);
 

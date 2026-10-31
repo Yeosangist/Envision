@@ -1,7 +1,9 @@
 
+//! Read queries over the library index, plus the database-only reorder.
 use super::{LibraryError, LibraryIndex, Result};
 use crate::domain::{Asset, DuplicateGroup, ReorderResult};
 
+/// Join per-hash counts so tiles can show duplicates without an N+1 query.
 const DUPLICATE_JOIN: &str = "
     LEFT JOIN (
         SELECT sha256, COUNT(*) AS copies
@@ -25,6 +27,7 @@ fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Asset> {
         bytes: row.get(10)?,
         mtime: row.get(11)?,
         sha256: row.get(12)?,
+        // Filled in by `attach_thumb_urls`, which needs the cache location.
         thumb_url: None,
     })
 }
@@ -36,6 +39,7 @@ const SELECT_ASSET: &str = "
            a.bytes, a.mtime, a.sha256
     FROM assets a";
 
+/// Use SHA-256 keys for shared content, or a stable per-asset key until fingerprinting completes.
 pub fn thumbnail_key(asset_id: i64, sha256: Option<&str>) -> String {
     match sha256 {
         Some(hash) => hash.to_string(),
@@ -43,6 +47,7 @@ pub fn thumbnail_key(asset_id: i64, sha256: Option<&str>) -> String {
     }
 }
 
+/// Attach backend-generated thumbnail URLs to decodable assets; unsupported formats get `None`.
 pub fn attach_thumb_urls(index: &LibraryIndex, assets: &mut [Asset]) {
     for asset in assets.iter_mut() {
         asset.thumb_url = if asset.decode_ok {
@@ -56,6 +61,7 @@ pub fn attach_thumb_urls(index: &LibraryIndex, assets: &mut [Asset]) {
     }
 }
 
+/// List assets in `assets.position` order; reordering changes index state only.
 pub fn list_assets(index: &LibraryIndex, folder_id: i64) -> Result<Vec<Asset>> {
     let mut stmt = index.conn.prepare(&format!(
         "{SELECT_ASSET} {DUPLICATE_JOIN}
@@ -85,6 +91,7 @@ pub fn asset_by_id(index: &LibraryIndex, id: i64) -> Result<Asset> {
         })
 }
 
+/// Look up an asset by its stored relative path.
 #[cfg(test)]
 pub(crate) fn asset_by_rel(index: &LibraryIndex, rel_path: &str) -> Result<Option<Asset>> {
     use rusqlite::OptionalExtension;
@@ -100,7 +107,9 @@ pub(crate) fn asset_by_rel(index: &LibraryIndex, rel_path: &str) -> Result<Optio
     Ok(asset)
 }
 
+/// Group identical SHA-256 assets for detection only; files remain present and browsable.
 pub fn list_duplicates(index: &LibraryIndex) -> Result<Vec<DuplicateGroup>> {
+    // First, get all duplicate groups
     let mut stmt = index.conn.prepare(
         "SELECT sha256, MIN(bytes) AS bytes, COUNT(*) AS copies
          FROM assets
@@ -124,6 +133,7 @@ pub fn list_duplicates(index: &LibraryIndex) -> Result<Vec<DuplicateGroup>> {
         return Ok(Vec::new());
     }
 
+    // Collect all sha256s for a single query
     let sha256s: Vec<String> = groups.iter().map(|(s, _, _)| s.clone()).collect();
     let placeholders: String = (0..sha256s.len()).map(|_| "?").collect::<Vec<_>>().join(",");
 
@@ -165,6 +175,7 @@ pub fn list_duplicates(index: &LibraryIndex) -> Result<Vec<DuplicateGroup>> {
     Ok(out)
 }
 
+/// How many assets share bytes with something else in the library.
 pub fn duplicate_summary(index: &LibraryIndex) -> Result<(i64, i64)> {
     let (groups, redundant) = index.conn.query_row(
         "SELECT COUNT(*), COALESCE(SUM(copies - 1), 0) FROM (
@@ -179,6 +190,8 @@ pub fn duplicate_summary(index: &LibraryIndex) -> Result<(i64, i64)> {
     Ok((groups, redundant))
 }
 
+/// The position a newly discovered image should take: after everything already
+/// in the folder.
 pub fn next_position(conn: &rusqlite::Connection, folder_id: i64) -> Result<i64> {
     let next = conn.query_row(
         "SELECT COALESCE(MAX(position), -1) + 1 FROM assets WHERE folder_id = ?1",
@@ -188,6 +201,7 @@ pub fn next_position(conn: &rusqlite::Connection, folder_id: i64) -> Result<i64>
     Ok(next)
 }
 
+/// Update only `assets.position`; `ordered_ids` must be a complete permutation of the folder's assets.
 pub fn reorder_assets(
     index: &LibraryIndex,
     folder_id: i64,
@@ -244,6 +258,8 @@ pub fn reorder_assets(
     })
 }
 
+/// Re-densify positions for a folder after its membership changed, preserving
+/// the relative order that is already stored.
 pub fn compact_positions(conn: &rusqlite::Connection, folder_id: i64) -> Result<()> {
     let ordered: Vec<(i64, i64)> = {
         let mut stmt = conn.prepare(
@@ -272,6 +288,8 @@ pub(crate) mod tests_support {
     use crate::database::{open_in_memory, LIBRARY_MIGRATIONS};
     use std::path::PathBuf;
 
+    /// An in-memory index rooted at a path that need not exist. Shared by the
+    /// unit tests across the `library` modules.
     pub(crate) fn index() -> LibraryIndex {
         LibraryIndex {
             id: "test".into(),
@@ -373,6 +391,7 @@ mod tests {
             .collect();
         assert_eq!(ordered, vec!["c.jpg", "a.jpg", "b.jpg"]);
 
+        // And the rel_path is genuinely unrelated to display order.
         assert!(ordered
             .iter()
             .any(|name| format!("album/{name}") != before[0].1));
@@ -388,6 +407,7 @@ mod tests {
         assert!(reorder_assets(&index, 1, &[ids[0], ids[0], ids[1]]).is_err());
         assert!(reorder_assets(&index, 1, &[ids[0], ids[1], 9999]).is_err());
 
+        // A rejected reorder leaves the order untouched.
         let order: Vec<i64> = list_assets(&index, 1)
             .unwrap()
             .iter()
@@ -403,9 +423,9 @@ mod tests {
             &index,
             "album",
             &[
-                ("a.jpg", "aa"),   
+                ("a.jpg", "aa"), // unique
                 ("b.jpg", "bb"),
-                ("c.jpg", "bb"),   
+                ("c.jpg", "bb"), // duplicate of b, different name
                 ("d.jpg", "bb"),
             ],
         );
@@ -415,6 +435,7 @@ mod tests {
         assert_eq!(groups[0].count, 3);
         assert_eq!(groups[0].assets.len(), 3);
 
+        // Every member is still individually listed in the folder.
         let all = list_assets(&index, 1).unwrap();
         assert_eq!(all.len(), 4, "no asset is hidden by deduplication");
         assert!(all.iter().filter(|a| a.duplicate_count == 2).count() == 3);
@@ -487,9 +508,11 @@ mod tests {
     }
 
 
+    // --- thumbnail URLs -----------------------------------------------------
     #[test]
     fn thumbnail_keys_fall_back_per_asset_until_fingerprinted() {
         assert_eq!(thumbnail_key(7, Some("abc123")), "abc123");
+        // Stable across calls, distinct per asset, and cache-path safe.
         assert_eq!(thumbnail_key(7, None), thumbnail_key(7, None));
         assert_ne!(thumbnail_key(7, None), thumbnail_key(8, None));
         assert!(crate::thumbnails::path_for(std::path::Path::new("/c"), &thumbnail_key(7, None)).is_some());
@@ -498,6 +521,8 @@ mod tests {
     #[test]
     fn every_decodable_asset_carries_a_thumbnail_url() {
         let index = index();
+        // Fingerprint characters are chosen so a filename can never appear as a
+        // substring of its own hash-derived cache path.
         seed(
             &index,
             "",
@@ -509,10 +534,12 @@ mod tests {
         for asset in &assets {
             let url = asset.thumb_url.as_deref().expect("decodable asset needs a url");
 
+            // Points into the thumbnail cache, never at the user's own file.
             assert!(url.contains("thumbs"), "{url}");
             assert!(!url.contains("a.jpg") && !url.contains("b.png"), "{url}");
 
             if cfg!(debug_assertions) {
+                // Debug builds address the Vite dev server, same-origin.
                 assert!(url.starts_with(crate::platform::DEV_THUMB_PREFIX), "{url}");
                 assert!(!url.contains("%2F"), "dev URLs are not encoded: {url}");
             } else {
@@ -529,6 +556,8 @@ mod tests {
     #[test]
     fn a_fingerprint_that_cannot_key_a_path_yields_no_url() {
         let index = index();
+        // A path separator in the key would let a corrupted row aim the cache
+        // outside its own directory, so it is refused rather than escaped.
         seed(&index, "", &[("a.jpg", "aa/aa")]);
 
         let assets = list_assets(&index, 1).unwrap();

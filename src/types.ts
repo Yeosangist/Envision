@@ -1,10 +1,12 @@
 
+/** Shapes returned by the Rust backend. Mirrors `src-tauri/src/domain/mod.rs`. */
 export interface Library {
   id: string;
   name: string;
   root_path: string;
   created_at: number;
   last_opened_at: number | null;
+  /** True when the registered folder no longer exists on disk. */
   missing: boolean;
 }
 
@@ -12,8 +14,11 @@ export interface Folder {
   id: number;
   parent_id: number | null;
   name: string;
+  /** '' for the library root, otherwise 'parent/child', always '/'-separated. */
   rel_path: string;
+  /** Number of images directly inside this folder. */
   image_count: number;
+  /** Asset-protocol URL for the thumbnail of this folder's first image. */
   cover_url: string | null;
 }
 
@@ -27,7 +32,9 @@ export interface Asset {
   height: number | null;
   decode_ok: boolean;
   position: number;
+  /** Other images in the library with byte-identical contents. */
   duplicate_count: number;
+  /** Asset-protocol URL for the cached thumbnail, or null when unavailable. */
   thumb_url: string | null;
 }
 
@@ -104,25 +111,32 @@ export interface Settings {
   thumbnail_cpu_limit: number;
 }
 
+/** Per-library counts shown on the home screen. */
 export interface LibrarySummary {
   id: string;
   images: number;
+  /** Sub-folders, excluding the library root. */
   folders: number;
 }
 
+/** Totals across every library Envision tracks, plus the derived cache. */
 export interface Stats {
   libraries: number;
+  /** Libraries whose index could not be read, so the totals are incomplete. */
   unreadable: number;
   images: number;
   folders: number;
   duplicate_groups: number;
   redundant: number;
+  /** Size of the indexed images, as recorded when they were indexed. */
   library_bytes: number;
   thumbnails_bytes: number;
   index_bytes: number;
+  /** Application data — where Envision's own cache lives, never a user folder. */
   cache_location: string;
 }
 
+/** A backend failure with a stable category, safe to show a user. */
 export class CommandError extends Error {
   readonly category: string;
 

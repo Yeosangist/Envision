@@ -1,5 +1,6 @@
 
 use super::fingerprint::Cancel;
+//! Reconcile the derived index with a library directory without modifying its files.
 #[cfg(test)]
 use super::fingerprint;
 use super::queries::compact_positions;
@@ -11,7 +12,9 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScanOptions {
+    /// Follow symlinks; disabled by default to avoid cycles and indexing outside the library.
     pub follow_symlinks: bool,
+    /// Descend into dot-directories such as `.git` or `.Trash`.
     pub include_hidden: bool,
     pub max_depth: Option<usize>,
 }
@@ -37,6 +40,7 @@ pub struct ScanOutcome {
     pub elapsed: Duration,
 }
 
+/// A handle for cancelling a running scan.
 pub type ScanHandle = Cancel;
 
 pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &super::fingerprint::Cancel) -> Result<ScanOutcome> {
@@ -58,6 +62,8 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
     let mut folders: HashMap<String, i64> = HashMap::new();
     folders.insert(String::new(), root_folder_id);
 
+    // Pass 1: discover directories. Parents are created before children so the
+    // `parent_id` link is always valid.
     let mut directories: Vec<(String, usize)> = Vec::new();
     let directories_complete = collect_entries(index, options, cancel, |entry| {
         if entry.depth == 0 {
@@ -83,6 +89,8 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
         outcome.folders += 1;
     }
 
+    // Where a newly discovered image lands in its folder. Seeded up front so the
+    // walk closure never has to fall back to an error path.
     let mut next_positions: HashMap<i64, i64> = {
         let mut stmt = index
             .conn
@@ -93,6 +101,7 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
         rows.into_iter().collect()
     };
 
+    // Pass 2: discover images.
     let tx = index.conn.unchecked_transaction()?;
     let images_complete = {
         let mut upsert = tx.prepare(
@@ -205,6 +214,8 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
                             _ => (None, None),
                         }
                     } else {
+                        // Formats Envision deliberately does not decode. They
+                        // stay indexed and countable, and open externally.
                         (None, None)
                     };
 
@@ -239,8 +250,10 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
         return Ok(outcome);
     }
 
+    // Pass 3: drop rows whose files are gone.
     outcome.removed = prune_missing(index)?;
 
+    // Re-densify positions in folders whose membership just changed.
     compact_folder_positions(index)?;
 
     let (_, redundant) = super::queries::duplicate_summary(index)?;
@@ -354,6 +367,7 @@ fn ensure_folder(
     Ok(index.conn.last_insert_rowid())
 }
 
+/// Remove stale index rows after a full root reconcile; never delete files from disk.
 fn prune_missing(index: &LibraryIndex) -> Result<u64> {
     let rows: Vec<(i64, String)> = {
         let mut stmt = index.conn.prepare("SELECT id, rel_path FROM assets")?;
@@ -388,6 +402,7 @@ fn prune_missing(index: &LibraryIndex) -> Result<u64> {
     Ok(gone.len() as u64)
 }
 
+/// Drop folders that no longer contain anything and no longer exist on disk.
 fn prune_missing_folders(index: &LibraryIndex) -> Result<()> {
     let rows: Vec<(i64, String)> = {
         let mut stmt = index.conn.prepare("SELECT id, rel_path FROM folders")?;
@@ -442,6 +457,7 @@ fn compact_folder_positions(index: &LibraryIndex) -> Result<()> {
     Ok(())
 }
 
+/// Convenience for tests: the number of indexed assets.
 #[cfg(test)]
 pub(crate) fn asset_count(index: &LibraryIndex) -> Result<i64> {
     Ok(index
@@ -455,6 +471,7 @@ pub(crate) mod tests_support {
     use crate::database::{open_in_memory, LIBRARY_MIGRATIONS};
     use std::path::{Path, PathBuf};
 
+    /// A temporary directory with an in-memory index rooted at it.
     pub(crate) fn temp_index(tag: &str) -> (LibraryIndex, PathBuf) {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -472,6 +489,7 @@ pub(crate) mod tests_support {
         (index, root)
     }
 
+    /// Write a tiny but structurally valid 1x1 PNG so dimension probing works.
     pub(crate) fn write_png(path: &Path, tag: &str) {
         const PNG: &[u8] = &[
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
@@ -583,6 +601,8 @@ mod tests {
 
     #[test]
     fn indexes_a_mislabelled_jpeg_with_real_dimensions() {
+        // A JPEG on disk named `.png`. The extension is a claim about the file,
+        // not a fact about it, and dimensions must come from the bytes.
         let (index, root) = temp_index("mislabelled");
         let path = root.join("liar.png");
         image::DynamicImage::ImageRgb8(
@@ -690,6 +710,7 @@ mod tests {
             .execute("UPDATE assets SET sha256 = 'deadbeef'", [])
             .unwrap();
 
+        // Make the file observably different and ensure a different mtime.
         std::fs::write(root.join("b.png"), vec![0xAB; 2048]).unwrap();
         let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
         set_mtime(&root.join("b.png"), later);

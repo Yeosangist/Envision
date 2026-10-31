@@ -8,6 +8,7 @@ export interface FolderCardProps {
   onOpen: (folderId: number) => void;
 }
 
+/** Folder cards open directories; dropping an image here moves the file there. */
 export function FolderCard({ folder, onOpen }: FolderCardProps) {
   const { setNodeRef, isOver } = useDroppable({ id: folderDropId(folder.id) });
   const [coverFailed, setCoverFailed] = useState(false);

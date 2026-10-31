@@ -7,6 +7,8 @@ describe('thumbnailCpuOptions', () => {
   });
 
   it('keeps a stored limit that is higher than this machine', () => {
+    // Selects render blank when the value has no matching option, so a value
+    // carried over from a larger machine still has to be offered.
     expect(thumbnailCpuOptions(8, 4)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
 

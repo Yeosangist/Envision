@@ -1,4 +1,5 @@
 
+//! Resolve Envision's derived data under the platform application-data directory.
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -10,36 +11,47 @@ pub enum PlatformError {
     Io(#[from] std::io::Error),
 }
 
+/// Root of Envision's per-machine state.
 pub fn app_data_dir(app: &AppHandle) -> Result<PathBuf, PlatformError> {
     app.path()
         .app_data_dir()
         .map_err(|error| PlatformError::AppData(error.to_string()))
 }
 
+/// The global registry of libraries plus desktop preferences.
 pub fn app_db(app: &AppHandle) -> Result<PathBuf, PlatformError> {
     Ok(app_data_dir(app)?.join("settings.db"))
 }
 
+/// Root of every per-library derived directory: the index and thumbnail caches
+/// for all registered libraries. Derived state only — never a user's images.
 pub fn libraries_dir(app: &AppHandle) -> Result<PathBuf, PlatformError> {
     Ok(app_data_dir(app)?.join("libraries"))
 }
 
+/// Root of the derived per-library directory.
 pub fn library_dir(app: &AppHandle, library_id: &str) -> Result<PathBuf, PlatformError> {
     Ok(libraries_dir(app)?.join(library_id))
 }
 
+/// The rebuildable query index for one library.
 pub fn library_index_path(app: &AppHandle, library_id: &str) -> Result<PathBuf, PlatformError> {
     Ok(library_dir(app, library_id)?.join("index.db"))
 }
 
+/// Thumbnail cache for one library, keyed by content hash so that duplicate
+/// files share a single decode.
 pub fn library_thumbnails_dir(app: &AppHandle, library_id: &str) -> Result<PathBuf, PlatformError> {
     Ok(library_dir(app, library_id)?.join("thumbnails"))
 }
 
+/// Log directory for one library.
 pub fn library_logs_dir(app: &AppHandle, library_id: &str) -> Result<PathBuf, PlatformError> {
     Ok(library_dir(app, library_id)?.join("logs"))
 }
 
+/// Create every directory Envision needs for a library, returning the paths it
+/// created.
 pub fn ensure_library_dirs(
     app: &AppHandle,
     library_id: &str,
@@ -56,6 +68,7 @@ pub fn ensure_library_dirs(
     Ok((index, thumbnails))
 }
 
+/// Require an existing directory and return its canonical path for stable identity.
 pub fn validate_library_root(root: &std::path::Path) -> Result<PathBuf, PlatformError> {
     let canonical = root.canonicalize().map_err(|error| {
         PlatformError::AppData(format!("{}: {error}", root.display()))
@@ -71,6 +84,8 @@ pub fn validate_library_root(root: &std::path::Path) -> Result<PathBuf, Platform
     Ok(canonical)
 }
 
+/// Human-facing library name derived from a folder, used when the user does not
+/// supply one.
 pub fn default_library_name(root: &std::path::Path) -> String {
     root.file_name()
         .map(|name| name.to_string_lossy().to_string())
@@ -78,6 +93,7 @@ pub fn default_library_name(root: &std::path::Path) -> String {
         .unwrap_or_else(|| "Library".to_string())
 }
 
+/// Build a platform-specific Tauri URL without exposing filesystem paths to the webview.
 pub fn asset_url(path: &std::path::Path) -> String {
     let encoded = percent_encode(&path.to_string_lossy());
     if cfg!(any(target_os = "windows", target_os = "android")) {
@@ -87,6 +103,7 @@ pub fn asset_url(path: &std::path::Path) -> String {
     }
 }
 
+/// Percent-encode UTF-8 bytes outside the URL unreserved set.
 fn percent_encode(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for byte in input.as_bytes() {
@@ -100,8 +117,11 @@ fn percent_encode(input: &str) -> String {
     out
 }
 
+/// Path prefix the dev server mounts its thumbnail middleware on. Must match
+/// `vite.config.ts`.
 pub const DEV_THUMB_PREFIX: &str = "/__thumbs";
 
+/// Use Vite same-origin URLs in debug because WebKitGTK blocks `asset://` from localhost; release uses the asset protocol.
 pub fn thumbnail_url(thumbnails_dir: &Path, library_id: &str, path: &Path) -> String {
     #[cfg(debug_assertions)]
     if let Ok(relative) = path.strip_prefix(thumbnails_dir) {
@@ -135,6 +155,8 @@ mod tests {
     fn asset_urls_encode_the_whole_path() {
         let url = asset_url(Path::new("/home/me/My Photos/a b.jpg"));
 
+        // Every path separator is escaped, so the only slashes left are the
+        // three in the scheme and authority: "asset://localhost/".
         assert_eq!(url.matches('/').count(), 3, "{url}");
         assert!(!url.contains(' '), "{url}");
         assert!(
@@ -157,6 +179,8 @@ mod tests {
         assert_eq!(default_library_name(Path::new("/photos")), "photos");
     }
 
+    /// Debug builds must address the dev server; release builds the asset
+    /// protocol. Both have to stay in step with `vite.config.ts`.
     #[test]
     fn thumbnail_urls_target_the_dev_server_in_debug_builds() {
         let dir = Path::new("/data/libraries/abc123/thumbnails");
@@ -171,6 +195,8 @@ mod tests {
         }
     }
 
+    /// A thumbnail that somehow sits outside its library's cache directory
+    /// must not produce a dev URL that escapes it.
     #[test]
     fn a_path_outside_the_cache_falls_back_to_the_asset_protocol() {
         let dir = Path::new("/data/libraries/abc123/thumbnails");

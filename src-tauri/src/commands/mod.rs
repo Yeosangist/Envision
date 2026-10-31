@@ -1,4 +1,5 @@
 
+//! Tauri command boundary: validate requests, call services, and return domain types.
 use crate::database::{delete_setting, read_setting, write_setting, APP_MIGRATIONS};
 use crate::domain::{Asset, DuplicateGroup, Folder, Library, LibrarySummary, MoveResult, ReorderResult, ScanProgress, ScanPhase, Settings, Stats};
 use crate::library::scan::{ScanHandle, ScanOptions, ScanOutcome};
@@ -9,8 +10,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+/// Event carrying scan progress.
 pub const SCAN_EVENT: &str = "scan:progress";
 
+/// A categorised failure safe to display in the UI.
 #[derive(Debug, Serialize, Deserialize, thiserror::Error)]
 #[error("{message}")]
 pub struct CommandError {
@@ -136,6 +139,7 @@ pub async fn close_library(state: State<'_, Arc<AppState>>) -> Result<()> {
     Ok(())
 }
 
+/// Forget a library and remove its derived data without touching user files.
 #[tauri::command]
 pub async fn forget_library(
     app: AppHandle,
@@ -150,6 +154,7 @@ pub async fn forget_library(
         .map_err(Into::into)
 }
 
+/// Point an existing library at a folder that has since moved.
 #[tauri::command]
 pub async fn relink_library(
     app: AppHandle,
@@ -186,6 +191,7 @@ fn emit(app: &AppHandle, progress: ScanProgress) {
     let _ = app.emit(SCAN_EVENT, progress);
 }
 
+/// Reconcile the open library, then fingerprint changed files in the background.
 #[tauri::command]
 pub async fn scan_library(
     app: AppHandle,
@@ -231,10 +237,13 @@ pub async fn scan_library(
         folders: outcome.folders,
     };
 
+    // Fingerprinting uses a separate connection on a blocking thread.
     let fingerprint_app = app.clone();
     let fingerprint_id = library_id;
     tauri::async_runtime::spawn_blocking(move || {
         let app = fingerprint_app;
+        // Whatever happens below, the UI gets exactly one terminal event, so it
+        // can never be left showing a scan that has in fact stopped.
         let index = match LibraryIndex::open(&app, &fingerprint_id, root) {
             Ok(index) => index,
             Err(error) => {
@@ -297,14 +306,19 @@ pub async fn scan_library(
             }
         }
 
+        // Fingerprints make duplicate detection possible, so report the totals
+        // the UI shows in its header and duplicates view.
         let (_, redundant) = library::queries::duplicate_summary(&index).unwrap_or((0, 0));
 
+        // Generate missing thumbnails in the background as a fallback to folder-prioritized work.
         let index_id = index.id.clone();
         let index_root = index.root.clone();
         let index_thumbs = index.thumbnails_dir.clone();
         drop(index);
+        // Spawn progress emitter
         let app_clone = app.clone();
         std::thread::spawn(move || {
+            // Reopen index in background thread
             if let Ok(index_path) = crate::platform::library_index_path(&app_clone, &index_id) {
                 if let Ok(conn) = crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS) {
                     let bg_index = LibraryIndex {
@@ -366,6 +380,7 @@ pub fn generate_thumbnails_for_assets(index: &LibraryIndex, asset_ids: &[i64], c
     }
     let placeholders: String = (0..asset_ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = format!("SELECT id, rel_path, sha256 FROM assets WHERE decode_ok = 1 AND id IN ({})", placeholders);
+    // Build params
     let mut stmt = match index.conn.prepare(&sql) {
         Ok(stmt) => stmt,
         Err(error) => {
@@ -408,6 +423,7 @@ fn generate_thumbnails_for_query(index: &LibraryIndex, sql: &str, cpu_limit: i64
     generate_thumbnails_from_rows(index, rows, cpu_limit);
 }
 
+/// Read the thumbnail CPU limit, defaulting to all available cores on failure.
 fn configured_thumbnail_cpu_limit(state: &State<'_, Arc<AppState>>) -> i64 {
     state
         .with_app_db(|conn| read_settings(conn).map_err(LibraryError::from))
@@ -427,6 +443,7 @@ fn generate_thumbnails_from_rows(
     let failed = std::sync::atomic::AtomicU64::new(0);
     let cached = std::sync::atomic::AtomicU64::new(0);
 
+    // Extract thread-safe data before parallel iteration
     let thumbnails_dir = index.thumbnails_dir.clone();
     let root = index.root.clone();
 
@@ -438,6 +455,7 @@ fn generate_thumbnails_from_rows(
                 return;
             }
 
+            // Stored paths are untrusted; re-derive before opening anything.
             let source = match crate::paths::resolve_within(&root, rel_path) {
                 Ok(path) => path,
                 Err(_) => return,
@@ -487,6 +505,7 @@ pub async fn cancel_scan(state: State<'_, Arc<AppState>>) -> Result<()> {
     Ok(())
 }
 
+/// Whether a scan is currently in flight for the open library.
 #[tauri::command]
 pub async fn scan_status(state: State<'_, Arc<AppState>>) -> Result<bool> {
     Ok(state.has_scan())
@@ -558,6 +577,7 @@ pub async fn list_child_folders(
         .map_err(Into::into)
 }
 
+/// List all library folders for navigation and breadcrumbs.
 #[tauri::command]
 pub async fn list_folders(state: State<'_, Arc<AppState>>) -> Result<Vec<Folder>> {
     state.with_index(library::list_all_folders).map_err(Into::into)
@@ -627,6 +647,7 @@ pub async fn rename_folder(
         .map_err(Into::into)
 }
 
+/// Read original image bytes by asset id without exposing its filesystem path.
 #[tauri::command]
 pub async fn read_asset_bytes(
     state: State<'_, Arc<AppState>>,
@@ -687,6 +708,7 @@ pub async fn duplicate_summary(state: State<'_, Arc<AppState>>) -> Result<Duplic
         .map_err(Into::into)
 }
 
+/// Reclaim unused thumbnail cache entries on explicit request.
 #[tauri::command]
 pub async fn prune_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64> {
     state
@@ -707,6 +729,7 @@ pub async fn prune_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64> {
 }
 
 
+/// App-data path for the theme image; only its filename is exposed to the UI.
 const THEME_BACKGROUND_KEY: &str = "theme_background_path";
 
 fn read_settings(conn: &Connection) -> crate::database::Result<Settings> {
@@ -734,6 +757,8 @@ fn read_settings(conn: &Connection) -> crate::database::Result<Settings> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
 
+    // Absent colour keys read as empty and normalisation supplies the default,
+    // so the palette lives in exactly one place (`Settings::default`).
     let custom_text = read_setting(conn, "custom_text")?.unwrap_or_default();
     let custom_text_muted = read_setting(conn, "custom_text_muted")?.unwrap_or_default();
     let custom_accent = read_setting(conn, "custom_accent")?.unwrap_or_default();
@@ -764,6 +789,7 @@ fn read_settings(conn: &Connection) -> crate::database::Result<Settings> {
     .normalized())
 }
 
+/// Open formats Envision does not decode with the desktop's registered handler.
 #[tauri::command]
 pub async fn get_settings(state: State<'_, Arc<AppState>>) -> Result<Settings> {
     state
@@ -771,6 +797,7 @@ pub async fn get_settings(state: State<'_, Arc<AppState>>) -> Result<Settings> {
         .map_err(CommandError::from)
 }
 
+/// Persist settings, excluding the background filename derived from its path.
 fn persist_settings(conn: &Connection, settings: &Settings) -> crate::database::Result<()> {
     write_setting(conn, "theme", &settings.theme)?;
     write_setting(conn, "interface_scale", &settings.interface_scale.to_string())?;
@@ -813,6 +840,8 @@ pub async fn update_settings(
     state: State<'_, Arc<AppState>>,
     settings: Settings,
 ) -> Result<Settings> {
+    // Normalise before writing so what is stored always matches what the UI
+    // will be asked to render.
     let normalized = settings.normalized();
     state
         .with_app_db(|conn| persist_settings(conn, &normalized).map_err(LibraryError::from))
@@ -820,6 +849,7 @@ pub async fn update_settings(
     Ok(normalized)
 }
 
+/// Set or clear the custom background image; only its filename is returned to the UI.
 #[tauri::command]
 pub async fn set_theme_background(
     state: State<'_, Arc<AppState>>,
@@ -858,6 +888,7 @@ pub async fn set_theme_background(
     }))
 }
 
+/// Read the theme background as IPC bytes without exposing its path.
 #[tauri::command]
 pub async fn read_theme_background(
     state: State<'_, Arc<AppState>>,
@@ -882,6 +913,7 @@ pub async fn read_theme_background(
 }
 
 
+/// Return tracked-library totals and derived cache sizes, even with no library open.
 #[tauri::command]
 pub async fn library_stats(state: State<'_, Arc<AppState>>) -> Result<Stats> {
     let libraries = state
@@ -910,6 +942,7 @@ pub async fn library_stats(state: State<'_, Arc<AppState>>) -> Result<Stats> {
     Ok(stats)
 }
 
+/// Return cheap per-library counts for the home screen.
 #[tauri::command]
 pub async fn library_summaries(state: State<'_, Arc<AppState>>) -> Result<Vec<LibrarySummary>> {
     let libraries = state
@@ -930,6 +963,7 @@ pub async fn library_summaries(state: State<'_, Arc<AppState>>) -> Result<Vec<Li
     Ok(summaries)
 }
 
+/// Applied once at startup so a fresh install has sane defaults on disk.
 pub fn seed_default_settings(conn: &Connection) -> crate::database::Result<()> {
     for (key, value) in [
         ("theme", "system"),
@@ -961,6 +995,7 @@ pub fn open_app_db(app: &AppHandle) -> crate::database::Result<Connection> {
     Ok(conn)
 }
 
+/// Reclaim thumbnail caches across registered libraries, skipping missing roots.
 #[tauri::command]
 pub async fn prune_all_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64> {
     let libraries = state.with_app_db(|conn| crate::library::list_libraries(conn))?;
@@ -995,6 +1030,7 @@ pub async fn prune_all_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64
 }
 
 
+/// Check whether `gallery-dl` is available on this machine.
 #[tauri::command]
 pub async fn check_gallery_dl() -> Result<bool> {
     Ok(std::process::Command::new("gallery-dl")
@@ -1022,6 +1058,7 @@ mod tests {
         assert_eq!(defaults.thumbnail_cpu_limit, 0, "0 means all available cores");
         assert_eq!(defaults.custom_background_image, None);
 
+        // Out-of-range input is clamped on the way in, not on the way out.
         let stored = Settings {
             theme: "DARK".into(),
             interface_scale: 3.0,
@@ -1038,6 +1075,8 @@ mod tests {
 
         let read_back = read_settings(&conn).unwrap();
         assert_eq!(read_back, stored);
+        // `dark` was the old name for the current palette; it reads back as
+        // `grey` without needing a schema migration.
         assert_eq!(read_back.theme, "grey");
         assert_eq!(read_back.interface_scale, 1.5);
         assert_eq!(read_back.max_playing_gifs, 12);
@@ -1046,6 +1085,7 @@ mod tests {
         assert_eq!(read_back.thumbnail_cpu_limit, 2);
         assert_eq!(read_back.custom_text, "#abcdef");
 
+        // Normalisation is idempotent, so a re-read of the same store is stable.
         assert_eq!(read_back.clone().normalized(), read_back);
     }
 
@@ -1064,6 +1104,7 @@ mod tests {
         assert_eq!(read_back.custom_accent, Settings::default().custom_accent);
     }
 
+    /// Ensure settings expose only the background image basename, not its path.
     #[test]
     fn the_background_image_name_is_derived_from_the_stored_path() {
         let conn = open_in_memory(APP_MIGRATIONS).unwrap();
@@ -1074,12 +1115,15 @@ mod tests {
         let settings = read_settings(&conn).unwrap();
         assert_eq!(settings.custom_background_image.as_deref(), Some("ridge.png"));
 
+        // Writing the settings back must not clobber the stored path with the
+        // name that came out of the read.
         persist_settings(&conn, &settings).unwrap();
         assert_eq!(
             read_setting(&conn, THEME_BACKGROUND_KEY).unwrap().unwrap(),
             "/pics/wall/ridge.png"
         );
 
+        // Clearing removes the row outright rather than leaving a blank one.
         delete_setting(&conn, THEME_BACKGROUND_KEY).unwrap();
         assert_eq!(read_settings(&conn).unwrap().custom_background_image, None);
     }

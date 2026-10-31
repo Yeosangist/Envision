@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS assets (
     folder_id   INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
 
     filename    TEXT    NOT NULL,
+    -- Path relative to the library root, '/'-separated.
     rel_path    TEXT    NOT NULL,
 
     ext         TEXT    NOT NULL,
@@ -33,6 +34,8 @@ CREATE TABLE IF NOT EXISTS assets (
 
     decode_ok   INTEGER NOT NULL DEFAULT 1,
 
+    -- Display order within `folder_id`. This is database-only state: reordering
+    -- the grid never touches a file, a name, or a directory.
     position    INTEGER NOT NULL DEFAULT 0,
 
     created_at  INTEGER NOT NULL,

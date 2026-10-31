@@ -1,6 +1,7 @@
 
 export type ThemeMode = 'system' | 'light' | 'grey' | 'oled' | 'custom';
 
+/** A theme mode with `system` resolved against the OS preference. */
 export type ResolvedTheme = 'light' | 'grey' | 'oled' | 'custom';
 
 export const THEME_MODES: readonly ThemeMode[] = ['system', 'light', 'grey', 'oled', 'custom'];
@@ -12,8 +13,10 @@ export interface CustomPalette {
   background: string;
 }
 
+/** Class names applied to the document element, one per fixed palette. */
 export const THEME_CLASSES = ['theme-light', 'theme-grey', 'theme-oled', 'theme-custom'] as const;
 
+/** Inline tokens removed when switching from a custom palette to a fixed theme. */
 export const CUSTOM_TOKENS = [
   '--bg',
   '--surface',
@@ -29,6 +32,7 @@ export const CUSTOM_TOKENS = [
   'color-scheme',
 ] as const;
 
+/** Luminance threshold for shading custom surfaces lighter or darker. */
 const DARK_BACKGROUND_LUMINANCE = 0.4;
 
 const OVERLAY_DARK = 'rgba(0, 0, 0, 0.88)';
@@ -40,6 +44,7 @@ export function isThemeMode(value: string): value is ThemeMode {
   return (THEME_MODES as readonly string[]).includes(value);
 }
 
+/** Normalise a `#rrggbb` colour, falling back when it is anything else. */
 export function normalizeHex(value: string, fallback: string): string {
   const trimmed = value.trim();
   const digits = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
@@ -60,6 +65,7 @@ export function toHex([r, g, b]: [number, number, number]): string {
   return `#${channel(r)}${channel(g)}${channel(b)}`;
 }
 
+/** Blend `amount` of `to` into `from`. Zero returns `from`, one returns `to`. */
 export function mix(from: string, to: string, amount: number): string {
   const a = parseHex(from) ?? [0, 0, 0];
   const b = parseHex(to) ?? [0, 0, 0];
@@ -72,6 +78,7 @@ function channelToLinear(value: number): number {
   return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
 }
 
+/** WCAG relative luminance, 0 for black and 1 for white. */
 export function relativeLuminance(value: string): number {
   const [r, g, b] = parseHex(value) ?? [0, 0, 0];
   return (
@@ -79,6 +86,7 @@ export function relativeLuminance(value: string): number {
   );
 }
 
+/** WCAG contrast ratio, from 1 (none) to 21 (black on white). */
 export function contrastRatio(a: string, b: string): number {
   const first = relativeLuminance(a);
   const second = relativeLuminance(b);
@@ -86,6 +94,7 @@ export function contrastRatio(a: string, b: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/** Choose black or white text for readable contrast on the background. */
 export function readableOn(background: string): string {
   return contrastRatio(background, '#ffffff') >= contrastRatio(background, '#0b0b0d')
     ? '#ffffff'
@@ -97,6 +106,7 @@ export function resolveTheme(mode: ThemeMode, prefersDark: boolean): ResolvedThe
   return mode;
 }
 
+/** Derive remaining surface and contrast tokens from the four user-selected colors. */
 export function deriveCustomTokens(palette: CustomPalette): Record<string, string> {
   const background = normalizeHex(palette.background, '#101012');
   const dark = relativeLuminance(background) < DARK_BACKGROUND_LUMINANCE;
@@ -120,12 +130,15 @@ export function deriveCustomTokens(palette: CustomPalette): Record<string, strin
 
 export interface ThemeRequest {
   mode: ThemeMode;
+  /** The OS preference, only consulted when the mode is `system`. */
   prefersDark: boolean;
   palette: CustomPalette;
+  /** Blob URL of the chosen background image, if there is one. */
   backgroundUrl: string | null;
   backgroundBlur: number;
 }
 
+/** Apply theme classes and tokens, removing custom inline values for fixed palettes. */
 export function applyTheme(root: HTMLElement, request: ThemeRequest): void {
   const resolved = resolveTheme(request.mode, request.prefersDark);
 

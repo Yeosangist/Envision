@@ -49,8 +49,10 @@ export default function App() {
     return watchSystemTheme();
   }, [loadSettings]);
 
+  // Fingerprinting continues after the directory walk; clear busy state and refresh duplicate badges on the terminal event.
   const lastPhase = useRef<ScanPhase | null>(null);
   useEffect(() => {
+    // Ignore anything still in flight from the library we just closed.
     if (!progress || !library || progress.library_id !== library.id) return;
 
     const phase = progress.phase;
@@ -62,6 +64,7 @@ export default function App() {
     void useLibraryStore.getState().rescanFinished();
   }, [progress, library]);
 
+  // Rescan after external filesystem changes so the grid stays current.
   const handleFilesystemChange = useCallback(() => {
     void useLibraryStore.getState().rescan().then(() => {
       void useLibraryStore.getState().refresh();
@@ -70,6 +73,7 @@ export default function App() {
 
   useLibraryChanged(handleFilesystemChange);
 
+  // Recheck on focus in case the platform missed a filesystem event.
   useEffect(() => {
     if (!library) return undefined;
     const onFocus = () => {
@@ -85,6 +89,7 @@ export default function App() {
     try {
       await openAssetExternally(assetId);
     } catch {
+    /* the desktop reports its own failure */
     }
   }, []);
 

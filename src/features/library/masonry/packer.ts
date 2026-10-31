@@ -1,15 +1,20 @@
 
+/** Packs masonry tiles while keeping stored order independent of visual position. */
+/** Clamp height/width ratios to keep extreme portraits and panoramas usable; 0.2 supports panoramas up to 5:1. */
 export const MIN_ASPECT = 0.2;
 export const MAX_ASPECT = 2.6;
 
+/** Assumed ratio when an image's dimensions are unknown. */
 export const DEFAULT_ASPECT = 1;
 
 export interface MasonryInput {
   id: number;
+  /** **height / width.** A 4:1 panorama is `0.25`, not `4`. */
   aspectRatio: number;
 }
 
 export interface PlacedTile {
+  /** Index in the logical array — this is the user's order, not the visual one. */
   index: number;
   id: number;
   x: number;
@@ -21,15 +26,18 @@ export interface PlacedTile {
 
 export interface MasonryLayout {
   tiles: PlacedTile[];
+  /** Tile indices per column, each sorted top-to-bottom. Used for visibility queries. */
   columns: number[][];
   totalHeight: number;
   columnCount: number;
   columnWidth: number;
+  /** True when the layout has no tiles, so a container needs no explicit height. */
   empty: boolean;
 }
 
 export interface MasonryOptions {
   width: number;
+  /** Width a column would ideally have. Columns stretch to fill the remainder. */
   targetColumnWidth?: number;
   spacing?: number;
 }
@@ -41,6 +49,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Pack into shortest columns, stretching them to fill the container width. */
 export function packMasonry(
   items: readonly MasonryInput[],
   options: MasonryOptions,
@@ -75,6 +84,7 @@ export function packMasonry(
     const aspect = clamp(raw, MIN_ASPECT, MAX_ASPECT);
     const height = Math.max(1, columnWidth * aspect);
 
+    // Greedy shortest column: the tile that makes the top of the grid most even.
     let column = 0;
     for (let candidate = 1; candidate < columnCount; candidate += 1) {
       if (columnBottoms[candidate] < columnBottoms[column]) {
@@ -108,6 +118,7 @@ export function packMasonry(
   };
 }
 
+/** Return visible tile indices by binary-searching each column's vertical band. */
 export function visibleIndices(
   layout: MasonryLayout,
   top: number,
@@ -141,6 +152,7 @@ export function visibleIndices(
   return [...found].sort((a, b) => a - b);
 }
 
+/** Move the item at `from` to `to`, returning a new array. */
 export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
   const next = items.slice();
   if (from < 0 || from >= next.length) return next;

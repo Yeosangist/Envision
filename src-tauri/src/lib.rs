@@ -15,6 +15,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Register first so startup and asset-protocol failures are captured.
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -36,15 +37,18 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // libraries
             commands::add_library,
             commands::list_libraries,
             commands::open_library,
             commands::close_library,
             commands::forget_library,
             commands::relink_library,
+            // scanning
             commands::scan_library,
             commands::cancel_scan,
             commands::scan_status,
+            // folders and assets
             commands::list_child_folders,
             commands::list_folders,
             commands::folder_ancestry,
@@ -55,10 +59,12 @@ pub fn run() {
             commands::rename_folder,
             commands::read_asset_bytes,
             commands::open_asset_externally,
+            // duplicates
             commands::list_duplicates,
             commands::duplicate_summary,
             commands::prune_thumbnails,
             commands::prune_all_thumbnails,
+            // settings
             commands::get_settings,
             commands::update_settings,
             commands::set_theme_background,
@@ -66,6 +72,7 @@ pub fn run() {
             commands::generate_thumbnails_for_folder_cmd,
             commands::generate_thumbnails_for_assets_cmd,
             commands::read_theme_background,
+            // statistics
             commands::library_stats,
             commands::library_summaries,
         ])

@@ -1,10 +1,13 @@
 
+/** Backend event subscriptions. */
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect, useState } from 'react';
 import type { ScanProgress } from '../types';
 
+/** Fired while Envision scans and fingerprints, and once when it finishes. */
 export const SCAN_EVENT = 'scan:progress';
 
+/** Fired when the watcher notices changes made outside the app. */
 export const CHANGED_EVENT = 'library:changed';
 
 export interface LibraryChangedEvent {
@@ -12,6 +15,7 @@ export interface LibraryChangedEvent {
   paths: string[];
 }
 
+/** Return the latest scan event and unsubscribe when the component unmounts. */
 export function useScanProgress(): ScanProgress | null {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
 
@@ -27,6 +31,7 @@ export function useScanProgress(): ScanProgress | null {
         else unlisten = dispose;
       })
       .catch(() => {
+      // Running outside the desktop shell; there is nothing to listen to.
       });
 
     return () => {
@@ -38,6 +43,7 @@ export function useScanProgress(): ScanProgress | null {
   return progress;
 }
 
+/** Subscribe to out-of-band filesystem changes for the open library. */
 export function useLibraryChanged(onChanged: (event: LibraryChangedEvent) => void): void {
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;

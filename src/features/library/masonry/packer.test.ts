@@ -62,9 +62,9 @@ describe('packMasonry', () => {
     const columnWidth = 210;
     const layout = packMasonry(
       [
-        { id: 1, aspectRatio: 1 / 4 }, 
-        { id: 2, aspectRatio: 2 }, 
-        { id: 3, aspectRatio: 1 }, 
+        { id: 1, aspectRatio: 1 / 4 }, // 4:1 panorama
+        { id: 2, aspectRatio: 2 }, // 1:2 portrait
+        { id: 3, aspectRatio: 1 }, // square
       ],
       { width: columnWidth, targetColumnWidth: columnWidth, spacing: 10 },
     );
@@ -77,13 +77,13 @@ describe('packMasonry', () => {
 
   it('gives ordinary images a tile that matches their real proportions', () => {
     const images: Array<[number, number]> = [
-      [4000, 1000], 
-      [6000, 2000], 
-      [3000, 1000], 
-      [4032, 3024], 
-      [1600, 900], 
-      [1000, 2000], 
-      [1000, 1000], 
+      [4000, 1000], // 4:1 panorama
+      [6000, 2000], // 3:1
+      [3000, 1000], // 3:1
+      [4032, 3024], // 4:3
+      [1600, 900], // 16:9
+      [1000, 2000], // 1:2 portrait
+      [1000, 1000], // square
     ];
 
     for (const [width, height] of images) {
@@ -103,8 +103,8 @@ describe('packMasonry', () => {
   it('bounds tiles for images beyond the clamp', () => {
     const layout = packMasonry(
       [
-        { id: 1, aspectRatio: 1 / 40 }, 
-        { id: 2, aspectRatio: 40 }, 
+        { id: 1, aspectRatio: 1 / 40 }, // 40:1 equirectangular
+        { id: 2, aspectRatio: 40 }, // 1:40 pillar
       ],
       { width: 210, targetColumnWidth: 210, spacing: 10 },
     );
@@ -129,6 +129,7 @@ describe('packMasonry', () => {
   });
 
   it('always places a tile in the column that was shortest', () => {
+    // 420px / (200+10) = 2.004 -> two columns, width 205.
     const layout = packMasonry(
       [
         { id: 1, aspectRatio: 3 },
@@ -140,6 +141,7 @@ describe('packMasonry', () => {
     );
     expect(layout.columnCount).toBe(2);
 
+    // Replay the packing and confirm each placement matched the shortest column.
     const bottoms = new Array(layout.columnCount).fill(0);
     for (const tile of layout.tiles) {
       const shortest = bottoms.indexOf(Math.min(...bottoms));
@@ -154,6 +156,7 @@ describe('packMasonry', () => {
     const input = aspects.map((aspectRatio, index) => ({ id: index + 1, aspectRatio }));
     const layout = packMasonry(input, { width: 800, targetColumnWidth: 200, spacing: 10 });
 
+    // Every tile knows its own logical position.
     for (const tile of layout.tiles) {
       expect(tile.index).toBe(tile.id - 1);
     }
@@ -162,11 +165,15 @@ describe('packMasonry', () => {
       expect(layout.tiles[i].y).toBeGreaterThanOrEqual(layout.tiles[i - 1].y);
     }
 
+    // But position is genuinely a layout result, not a column-major index: the
+    // tiles are scattered across several columns with differing heights.
     expect(new Set(layout.tiles.map((tile) => tile.column)).size).toBeGreaterThan(1);
     expect(new Set(layout.tiles.map((tile) => Math.round(tile.y))).size).toBeGreaterThan(3);
   });
 
   it('reordering the input changes the rendered geometry', () => {
+    // This is the whole point: a reorder is a change to the ordered array, and
+    // the layout follows from it. Nothing about the pixels implies the order.
     const aspects = [2.4, 0.6, 0.6, 2.4, 0.6, 0.6, 2.4, 0.6, 0.6];
     const items = aspects.map((aspectRatio, index) => ({ id: index + 1, aspectRatio }));
 
@@ -174,12 +181,15 @@ describe('packMasonry', () => {
     const swapped = [items[4], items[1], items[2], items[3], items[0], items[5], items[6], items[7], items[8]];
     const after = packMasonry(swapped, { width: 800, targetColumnWidth: 200, spacing: 10 });
 
+    // Item 1 kept id 1 but changed size, because it now sits against a different
+    // column height. Same ids, different geometry: the order drives the layout.
     const positionOf = (layout: typeof before, id: number) => {
       const tile = layout.tiles.find((candidate) => candidate.id === id)!;
       return { x: tile.x, y: tile.y, height: tile.height };
     };
 
     expect(positionOf(before, 1)).not.toEqual(positionOf(after, 1));
+    // And the grid still spans its container either way.
     expect(Math.max(...after.tiles.map((tile) => tile.x + tile.width))).toBeCloseTo(800, 5);
   });
 

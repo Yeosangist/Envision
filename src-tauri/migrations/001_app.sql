@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS libraries (
     last_opened_at  INTEGER
 );
 
+-- Paths are compared case-insensitively only where the host filesystem is.
+-- `{collation}` is substituted by the Rust migration runner before execution.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_libraries_root_path
     ON libraries(root_path COLLATE {collation});
 

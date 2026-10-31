@@ -7,16 +7,19 @@ import { useSettingsStore } from '../../state/settingsStore';
 
 export const TARGET_COLUMN_WIDTH = 210;
 export const SPACING = 10;
+/** Rows rendered above and below the viewport so scrolling does not flash. */
 const OVERSCAN_PX = 600;
 
 export interface MasonryGridProps {
   assets: Asset[];
+  /** The scrollable ancestor. Shared with the folder row so one surface scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>;
   onOpen: (assetId: number) => void;
   selectedIds?: number[];
   onToggleSelect?: (assetId: number) => void;
 }
 
+/** Drop target id for a folder card, distinguishable from a tile's numeric id. */
 export const folderDropId = (folderId: number) => `folder:${folderId}`;
 
 interface TileProps {
@@ -108,6 +111,7 @@ function Tile({ asset, selected, onOpen, onToggleSelect }: TileProps) {
   );
 }
 
+/** Virtualized masonry grid; drag-and-drop context is supplied by the parent. */
 export function MasonryGrid({
   assets,
   scrollRef,
@@ -127,6 +131,7 @@ export function MasonryGrid({
     setBand({ top, bottom: top + rect.height });
   }, [scrollRef]);
 
+  // Measure visibility from the scroller but pack to the canvas to exclude `.library-inner` padding.
   useEffect(() => {
     if (!canvas) return undefined;
 
@@ -143,6 +148,7 @@ export function MasonryGrid({
     });
     observer.observe(canvas);
 
+    // Recompute on window resize, including transitions out of maximized state.
     window.addEventListener('resize', updateWidth);
     updateWidth();
 
@@ -152,6 +158,7 @@ export function MasonryGrid({
     };
   }, [canvas, measure]);
 
+  // Render only the visible band plus overscan.
   useEffect(() => {
     const element = scrollRef.current;
     if (!element) return undefined;

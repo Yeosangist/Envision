@@ -1,4 +1,5 @@
 
+//! Explicit filesystem changes only; paths are revalidated under the library root.
 use super::queries::{compact_positions, next_position};
 use super::{LibraryError, LibraryIndex, Result};
 use crate::domain::MoveResult;
@@ -6,6 +7,7 @@ use crate::paths;
 use std::io::Write;
 use std::path::Path;
 
+/// Move files on disk and update their index rows, adding a numeric suffix for destination collisions.
 pub fn move_assets(
     index: &LibraryIndex,
     asset_ids: &[i64],
@@ -115,6 +117,7 @@ pub fn move_assets(
     Ok(results)
 }
 
+/// Rename a file, falling back to copy-and-delete across filesystem boundaries.
 fn relocate(source: &Path, destination: &Path) -> Result<()> {
     match std::fs::rename(source, destination) {
         Ok(()) => Ok(()),
@@ -124,12 +127,13 @@ fn relocate(source: &Path, destination: &Path) -> Result<()> {
 }
 
 fn is_cross_device(error: &std::io::Error) -> bool {
-    error.raw_os_error() == Some(18) 
-        || error.raw_os_error() == Some(17) 
+    error.raw_os_error() == Some(18) // EXDEV on Linux
+        || error.raw_os_error() == Some(17) // EEXIST surfaces this way on some Windows setups
         || error.to_string().to_ascii_lowercase().contains("cross-device")
         || error.to_string().to_ascii_lowercase().contains("different disk")
 }
 
+/// Copy to a destination-side temporary file and sync it before removing the source.
 fn copy_across_devices(source: &Path, destination: &Path) -> Result<()> {
     let temp = destination.with_extension(format!(
         "{}-envision-moving",
@@ -158,6 +162,7 @@ fn copy_across_devices(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Create a real directory beneath the library root and a folder row for it.
 pub fn create_folder(index: &LibraryIndex, parent_id: i64, name: &str) -> Result<i64> {
     let name = sanitize_folder_name(name)?;
     let parent = super::folder_by_id(index, parent_id)?;
@@ -185,6 +190,7 @@ pub fn create_folder(index: &LibraryIndex, parent_id: i64, name: &str) -> Result
     Ok(index.conn.last_insert_rowid())
 }
 
+/// Rename a real directory and re-point every row beneath it.
 pub fn rename_folder(index: &LibraryIndex, folder_id: i64, name: &str) -> Result<()> {
     let name = sanitize_folder_name(name)?;
     let folder = super::folder_by_id(index, folder_id)?;
@@ -270,6 +276,7 @@ pub fn rename_folder(index: &LibraryIndex, folder_id: i64, name: &str) -> Result
     Ok(())
 }
 
+/// Reject names that would produce an unusable or unsafe directory.
 fn sanitize_folder_name(name: &str) -> Result<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -496,6 +503,7 @@ mod tests {
         let first = folder_by_rel(&index, "a_b").unwrap().unwrap();
         rename_folder(&index, first.id, "renamed").unwrap();
 
+        // "aXb" must not have been swept up by a LIKE on "a_b/".
         assert!(folder_by_rel(&index, "aXb").unwrap().is_some());
         assert!(root.join("aXb/other.png").is_file());
 
