@@ -207,9 +207,11 @@ impl Settings {
 
         let defaults = Settings::default();
         self.custom_text = normalize_hex(&self.custom_text, &defaults.custom_text);
-        self.custom_text_muted = normalize_hex(&self.custom_text_muted, &defaults.custom_text_muted);
+        self.custom_text_muted =
+            normalize_hex(&self.custom_text_muted, &defaults.custom_text_muted);
         self.custom_accent = normalize_hex(&self.custom_accent, &defaults.custom_accent);
-        self.custom_background = normalize_hex(&self.custom_background, &defaults.custom_background);
+        self.custom_background =
+            normalize_hex(&self.custom_background, &defaults.custom_background);
 
         if !self.custom_background_blur.is_finite() {
             self.custom_background_blur = defaults.custom_background_blur;
@@ -383,7 +385,10 @@ mod tests {
         // Short hex is not accepted: it is far more likely to be a mistake than
         // an intent, and expanding it silently would hide the typo.
         assert_eq!(settings.custom_accent, Settings::default().custom_accent);
-        assert_eq!(settings.custom_background, Settings::default().custom_background);
+        assert_eq!(
+            settings.custom_background,
+            Settings::default().custom_background
+        );
     }
 
     #[test]
@@ -394,7 +399,10 @@ mod tests {
         }
         .normalized();
 
-        assert_eq!(settings.custom_background_image.as_deref(), Some("ridge.png"));
+        assert_eq!(
+            settings.custom_background_image.as_deref(),
+            Some("ridge.png")
+        );
 
         let blank = Settings {
             custom_background_image: Some("   ".into()),

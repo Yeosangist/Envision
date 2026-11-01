@@ -125,7 +125,8 @@ mod tests {
 
     #[test]
     fn access_events_are_not_worth_a_rescan() {
-        let mut event = notify::Event::new(notify::EventKind::Access(notify::event::AccessKind::Read));
+        let mut event =
+            notify::Event::new(notify::EventKind::Access(notify::event::AccessKind::Read));
         event.paths = vec![PathBuf::from("/library/a.png")];
         assert!(!is_interesting(&event));
     }

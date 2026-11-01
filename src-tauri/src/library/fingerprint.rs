@@ -93,7 +93,12 @@ where
                 if cancel.is_cancelled() {
                     break;
                 }
-                let job = { queue.lock().expect("fingerprint queue poisoned").pop_front() };
+                let job = {
+                    queue
+                        .lock()
+                        .expect("fingerprint queue poisoned")
+                        .pop_front()
+                };
                 let Some(job) = job else { break };
                 let hash = fingerprint_file(&job.path).ok();
                 if tx.send((job, hash)).is_err() {
@@ -147,9 +152,8 @@ fn flush(index: &LibraryIndex, batch: &mut Vec<(i64, String)>) -> Result<()> {
 
     let tx = index.conn.unchecked_transaction()?;
     {
-        let mut update = tx.prepare(
-            "UPDATE assets SET sha256 = ?1, hashed_at = ?2 WHERE id = ?3",
-        )?;
+        let mut update =
+            tx.prepare("UPDATE assets SET sha256 = ?1, hashed_at = ?2 WHERE id = ?3")?;
         let now = chrono::Utc::now().timestamp();
         for (asset_id, hash) in batch.iter() {
             update.execute(rusqlite::params![hash, now, asset_id])?;
@@ -316,7 +320,9 @@ mod tests {
             )
             .unwrap();
 
-        let paths: Vec<PathBuf> = (0..5).map(|i| temp_file(&format!("batch{i}"), b"payload")).collect();
+        let paths: Vec<PathBuf> = (0..5)
+            .map(|i| temp_file(&format!("batch{i}"), b"payload"))
+            .collect();
         for (position, path) in paths.iter().enumerate() {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
             index
@@ -353,9 +359,11 @@ mod tests {
 
         let stored: i64 = index
             .conn
-            .query_row("SELECT COUNT(*) FROM assets WHERE sha256 IS NOT NULL", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT COUNT(*) FROM assets WHERE sha256 IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(stored, 5);
 
@@ -376,7 +384,9 @@ mod tests {
             )
             .unwrap();
 
-        let paths: Vec<PathBuf> = (0..8).map(|i| temp_file(&format!("cancel{i}"), b"x")).collect();
+        let paths: Vec<PathBuf> = (0..8)
+            .map(|i| temp_file(&format!("cancel{i}"), b"x"))
+            .collect();
         for path in &paths {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
             index

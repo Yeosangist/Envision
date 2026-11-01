@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { packMasonry, visibleIndices, type MasonryLayout } from './masonry/packer';
 import type { Asset } from '../../types';
 import { useSettingsStore } from '../../state/settingsStore';
+import { generateThumbnailsForAssets } from '../../api/invoke';
+import { useThumbnailReady } from '../../api/events';
 
 export const TARGET_COLUMN_WIDTH = 210;
 export const SPACING = 10;
@@ -150,6 +152,16 @@ export function MasonryGrid({
   const [width, setWidth] = useState(0);
   const [band, setBand] = useState({ top: 0, bottom: 0 });
   const [canvas, setCanvas] = useState<HTMLDivElement | null>(null);
+  const requestedThumbnails = useRef(new Map<number, string>());
+
+  useEffect(() => {
+    requestedThumbnails.current.clear();
+  }, [libraryId]);
+
+  const onThumbnailReady = useCallback((event: { library_id: string; asset_id: number }) => {
+    if (event.library_id === libraryId) requestedThumbnails.current.delete(event.asset_id);
+  }, [libraryId]);
+  useThumbnailReady(onThumbnailReady);
 
   const measure = useCallback(() => {
     const element = scrollRef.current;
@@ -213,6 +225,27 @@ export function MasonryGrid({
     () => visibleIndices(layout, band.top - OVERSCAN_PX, band.bottom + OVERSCAN_PX),
     [layout, band.top, band.bottom],
   );
+
+  const thumbnailRequests = useMemo(() => {
+    const inViewport = visibleIndices(layout, band.top, band.bottom);
+    const orderedIndices = [...inViewport, ...visible.filter((index) => !inViewport.includes(index))];
+    return orderedIndices
+      .map((index) => assets[index])
+      .filter((asset) => asset?.decode_ok && asset.thumb_url)
+      .map((asset) => ({ assetId: asset.id, cacheKey: asset.thumb_url! }));
+  }, [assets, band.bottom, band.top, layout, visible]);
+
+  useEffect(() => {
+    const requests = thumbnailRequests.filter(({ assetId, cacheKey }) => {
+      if (requestedThumbnails.current.get(assetId) === cacheKey) return false;
+      requestedThumbnails.current.set(assetId, cacheKey);
+      return true;
+    });
+    if (requests.length === 0) return;
+    void generateThumbnailsForAssets(requests.map(({ assetId }) => assetId)).catch(() => {
+      for (const { assetId } of requests) requestedThumbnails.current.delete(assetId);
+    });
+  }, [thumbnailRequests]);
 
   const visibleSet = useMemo(() => new Set(visible), [visible]);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);

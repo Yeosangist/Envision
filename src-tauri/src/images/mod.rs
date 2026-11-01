@@ -13,8 +13,8 @@ pub enum MediaKind {
 
 /// Extensions the bundled `image` crate decodes with default features.
 const DECODABLE: &[&str] = &[
-    "jpg", "jpeg", "jfif", "png", "gif", "webp", "bmp", "ico", "tiff", "tif", "tga", "qoi",
-    "pnm", "pbm", "pam", "ppm", "pgm", "exr", "hdr", "dds", "pcx", "dcx", "farbfeld", "ff",
+    "jpg", "jpeg", "jfif", "png", "gif", "webp", "bmp", "ico", "tiff", "tif", "tga", "qoi", "pnm",
+    "pbm", "pam", "ppm", "pgm", "exr", "hdr", "dds", "pcx", "dcx", "farbfeld", "ff",
 ];
 
 /// Still-image formats that are deliberately *not* decoded. These keep the
@@ -143,12 +143,10 @@ mod tests {
     /// Create JPEG bytes with a `.png` name to verify content-based decoding.
     fn write_jpeg_named_png(dir: &Path, name: &str, width: u32, height: u32) -> PathBuf {
         let path = dir.join(name);
-        image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(
-            width,
-            height,
-            vec![200u8; (width * height * 3) as usize],
+        image::DynamicImage::ImageRgb8(
+            image::RgbImage::from_raw(width, height, vec![200u8; (width * height * 3) as usize])
+                .unwrap(),
         )
-        .unwrap())
         .save_with_format(&path, image::ImageFormat::Jpeg)
         .unwrap();
         path

@@ -85,9 +85,9 @@ impl LibraryIndex {
     pub fn asset_path(&self, rel_path: &str) -> Result<Option<PathBuf>> {
         match crate::paths::resolve_within(&self.root, rel_path) {
             Ok(path) => Ok(Some(path)),
-            Err(PathError::NotFound(_)) | Err(PathError::Escapes(_)) | Err(PathError::NotAllowed(_)) => {
-                Ok(None)
-            }
+            Err(PathError::NotFound(_))
+            | Err(PathError::Escapes(_))
+            | Err(PathError::NotAllowed(_)) => Ok(None),
         }
     }
 
@@ -101,7 +101,8 @@ impl LibraryIndex {
 }
 
 
-const SELECT_LIBRARY: &str = "SELECT id, name, root_path, created_at, last_opened_at FROM libraries";
+const SELECT_LIBRARY: &str =
+    "SELECT id, name, root_path, created_at, last_opened_at FROM libraries";
 
 fn library_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Library> {
     Ok(Library {
@@ -208,7 +209,11 @@ pub fn relink_library(conn: &Connection, id: &str, new_root: &Path) -> Result<Li
 
     conn.execute(
         "UPDATE libraries SET root_path = ?1, last_opened_at = ?2 WHERE id = ?3",
-        rusqlite::params![root.to_string_lossy().as_ref(), chrono::Utc::now().timestamp(), id],
+        rusqlite::params![
+            root.to_string_lossy().as_ref(),
+            chrono::Utc::now().timestamp(),
+            id
+        ],
     )?;
 
     load_library(conn, id)?.ok_or_else(|| LibraryError::NotFound(id.to_string()))
@@ -311,7 +316,9 @@ pub fn list_child_folders(index: &LibraryIndex, parent_id: Option<i64>) -> Resul
 
 /// Every folder in the library, used to build breadcrumbs and the folder picker.
 pub fn list_all_folders(index: &LibraryIndex) -> Result<Vec<Folder>> {
-    let mut stmt = index.conn.prepare(&format!("{SELECT_FOLDER} ORDER BY f.rel_path"))?;
+    let mut stmt = index
+        .conn
+        .prepare(&format!("{SELECT_FOLDER} ORDER BY f.rel_path"))?;
     let folders = stmt
         .query_map([], folder_from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -461,7 +468,10 @@ impl AppState {
     }
 
     pub fn open_library_id(&self) -> Option<String> {
-        self.open.lock().ok().and_then(|guard| guard.as_ref().map(|i| i.id.clone()))
+        self.open
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|i| i.id.clone()))
     }
 
     pub fn install_watcher(&self, handle: watcher::WatcherHandle) {
@@ -507,9 +517,7 @@ fn poisoned<T>(_: T) -> LibraryError {
 
 // Re-exported so command handlers can stay thin.
 pub use moves::{create_folder, move_assets, rename_folder};
-pub use queries::{
-    asset_by_id, duplicate_summary, list_assets, list_duplicates, reorder_assets,
-};
+pub use queries::{asset_by_id, duplicate_summary, list_assets, list_duplicates, reorder_assets};
 
 #[cfg(test)]
 mod tests {
@@ -700,7 +708,10 @@ mod tests {
 
         let root = root_folder(&index).unwrap();
         assert_eq!(root.image_count, 1, "loose images sit at the root");
-        assert_eq!(list_child_folders(&index, Some(2)).unwrap()[0].image_count, 1);
+        assert_eq!(
+            list_child_folders(&index, Some(2)).unwrap()[0].image_count,
+            1
+        );
 
         let deep = folder_by_id(&index, 3).unwrap();
         assert_eq!(deep.image_count, 1);

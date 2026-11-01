@@ -18,7 +18,9 @@ pub fn move_assets(
     }
 
     let target = super::folder_by_id(index, to_folder_id)?;
-    if target.rel_path.is_empty() && target.parent_id.is_none() && to_folder_id != super::root_folder(index)?.id
+    if target.rel_path.is_empty()
+        && target.parent_id.is_none()
+        && to_folder_id != super::root_folder(index)?.id
     {
         return Err(LibraryError::FolderNotFound(to_folder_id));
     }
@@ -237,10 +239,9 @@ pub fn rename_folder(index: &LibraryIndex, folder_id: i64, name: &str) -> Result
                  WHERE id <> ?1 AND rel_path LIKE ?2 ESCAPE '\\'",
             )?;
             let rows = stmt
-                .query_map(
-                    rusqlite::params![folder_id, &like_pattern],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )?
+                .query_map(rusqlite::params![folder_id, &like_pattern], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
         };
@@ -253,12 +254,7 @@ pub fn rename_folder(index: &LibraryIndex, folder_id: i64, name: &str) -> Result
         for (id, rel) in &descendants {
             let suffix = rel.get(suffix_from - 1..).unwrap_or_default();
             let segment = suffix.split('/').next().unwrap_or(suffix).to_string();
-            rename_folder.execute(rusqlite::params![
-                &new_rel,
-                suffix_from as i64,
-                segment,
-                id
-            ])?;
+            rename_folder.execute(rusqlite::params![&new_rel, suffix_from as i64, segment, id])?;
         }
 
         let mut rename_asset = tx.prepare(
@@ -283,7 +279,9 @@ fn sanitize_folder_name(name: &str) -> Result<String> {
         return Err(LibraryError::Invalid("a folder needs a name".into()));
     }
     if trimmed == "." || trimmed == ".." {
-        return Err(LibraryError::Invalid("that is not a usable folder name".into()));
+        return Err(LibraryError::Invalid(
+            "that is not a usable folder name".into(),
+        ));
     }
     if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains('\0') {
         return Err(LibraryError::Invalid(
@@ -393,7 +391,11 @@ mod tests {
         std::fs::create_dir_all(root.join("album")).unwrap();
         reconcile(&index);
         let album = folder_by_rel(&index, "album").unwrap().unwrap();
-        let ids: Vec<i64> = list_assets(&index, 1).unwrap().iter().map(|a| a.id).collect();
+        let ids: Vec<i64> = list_assets(&index, 1)
+            .unwrap()
+            .iter()
+            .map(|a| a.id)
+            .collect();
 
         let results = move_assets(&index, &ids, album.id).unwrap();
         assert_eq!(results.len(), 3);
@@ -527,6 +529,11 @@ mod tests {
     }
 
     fn reconcile(index: &LibraryIndex) {
-        crate::library::scan::reconcile_index(index, Default::default(), &crate::library::fingerprint::Cancel::new()).unwrap();
+        crate::library::scan::reconcile_index(
+            index,
+            Default::default(),
+            &crate::library::fingerprint::Cancel::new(),
+        )
+        .unwrap();
     }
 }

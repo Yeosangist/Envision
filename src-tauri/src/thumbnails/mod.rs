@@ -1,7 +1,7 @@
 
 //! Per-library thumbnail cache, keyed by content hash so identical files share work.
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,6 +13,25 @@ pub enum ThumbnailError {
 }
 
 pub type Result<T> = std::result::Result<T, ThumbnailError>;
+
+fn in_flight() -> &'static Mutex<std::collections::HashMap<PathBuf, Weak<Mutex<()>>>> {
+    static IN_FLIGHT: OnceLock<Mutex<std::collections::HashMap<PathBuf, Weak<Mutex<()>>>>> =
+        OnceLock::new();
+    IN_FLIGHT.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn lock_for(destination: &Path) -> Arc<Mutex<()>> {
+    let mut in_flight = in_flight()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    in_flight.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = in_flight.get(destination).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    in_flight.insert(destination.to_path_buf(), Arc::downgrade(&lock));
+    lock
+}
 
 /// Map nonpositive limits to all cores; cap positive limits to available cores and return at least one.
 pub fn worker_count_for(limit: i64, available: usize) -> usize {
@@ -112,14 +131,17 @@ pub fn path_for(cache_dir: &Path, key: &str) -> Option<PathBuf> {
     {
         return None;
     }
-    Some(versioned_dir(cache_dir).join(&key[..2]).join(format!("{key}.jpg")))
+    Some(
+        versioned_dir(cache_dir)
+            .join(&key[..2])
+            .join(format!("{key}.jpg")),
+    )
 }
 
 /// True when a usable thumbnail is already cached.
 pub fn is_cached(cache_dir: &Path, sha256: &str) -> bool {
-    path_for(cache_dir, sha256).is_some_and(|path| {
-        path.metadata().map(|meta| meta.len() > 0).unwrap_or(false)
-    })
+    path_for(cache_dir, sha256)
+        .is_some_and(|path| path.metadata().map(|meta| meta.len() > 0).unwrap_or(false))
 }
 
 /// Render or reuse a cached thumbnail and return its path and dimensions.
@@ -136,6 +158,11 @@ pub fn ensure(
     let Some(destination) = path_for(cache_dir, sha256) else {
         return Ok(None);
     };
+
+    let destination_lock = lock_for(&destination);
+    let _guard = destination_lock
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     if is_cached(cache_dir, sha256) {
         if let Some((width, height)) = dimensions_of(&destination) {
@@ -339,7 +366,9 @@ mod tests {
         // everything at once instead of leaving stale thumbnails in place.
         assert_eq!(
             path.parent().unwrap(),
-            Path::new("/cache").join(format!("v{CACHE_VERSION}")).join("aa")
+            Path::new("/cache")
+                .join(format!("v{CACHE_VERSION}"))
+                .join("aa")
         );
         assert_eq!(
             path.file_name().unwrap().to_string_lossy(),
@@ -373,9 +402,7 @@ mod tests {
             .save(&image_path)
             .unwrap();
 
-        let (path, width, height) = ensure(&cache, HASH, &image_path, true)
-            .unwrap()
-            .unwrap();
+        let (path, width, height) = ensure(&cache, HASH, &image_path, true).unwrap().unwrap();
 
         assert!(path.is_file());
         // 800x400 is 2:1, so bounding it to 384 wide gives 384x192.
@@ -386,6 +413,35 @@ mod tests {
         // A second call is a cache hit: same path, no re-encode.
         let (again, _, _) = ensure(&cache, HASH, &image_path, true).unwrap().unwrap();
         assert_eq!(again, path);
+
+        std::fs::remove_dir_all(&cache).ok();
+        std::fs::remove_dir_all(&source).ok();
+    }
+
+    #[test]
+    fn concurrent_cache_misses_share_one_thumbnail_write() {
+        let cache = temp_dir("concurrent");
+        let source = temp_dir("concurrent-source");
+        let image_path = source.join("shared.png");
+        image::RgbImage::from_raw(1200, 800, vec![64u8; 1200 * 800 * 3])
+            .unwrap()
+            .save(&image_path)
+            .unwrap();
+
+        let workers: Vec<_> = (0..4)
+            .map(|_| {
+                let cache = cache.clone();
+                let image_path = image_path.clone();
+                std::thread::spawn(move || ensure(&cache, HASH, &image_path, true))
+            })
+            .collect();
+        let paths: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap().unwrap().unwrap().0)
+            .collect();
+
+        assert!(paths.iter().all(|path| path == &paths[0]));
+        assert!(is_cached(&cache, HASH));
 
         std::fs::remove_dir_all(&cache).ok();
         std::fs::remove_dir_all(&source).ok();
@@ -532,7 +588,10 @@ mod tests {
 
         let removed = prune(&cache, &[live.clone()]).unwrap();
 
-        assert!(!cache.join("v1").exists(), "stale version removed wholesale");
+        assert!(
+            !cache.join("v1").exists(),
+            "stale version removed wholesale"
+        );
         assert!(current.exists(), "current version survives");
         assert_eq!(removed, 1);
     }

@@ -28,10 +28,9 @@ pub fn run() {
             let handle = app.handle().clone();
             let app_db = commands::open_app_db(&handle)?;
             app.manage(Arc::new(AppState::new(handle, app_db)));
-            if let (Some(icon), Some(window)) = (
-                app.default_window_icon(),
-                app.get_webview_window("main"),
-            ) {
+            if let (Some(icon), Some(window)) =
+                (app.default_window_icon(), app.get_webview_window("main"))
+            {
                 window.set_icon(icon.clone())?;
             }
             Ok(())

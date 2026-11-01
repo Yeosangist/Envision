@@ -52,9 +52,8 @@ pub fn attach_thumb_urls(index: &LibraryIndex, assets: &mut [Asset]) {
     for asset in assets.iter_mut() {
         asset.thumb_url = if asset.decode_ok {
             let key = thumbnail_key(asset.id, asset.sha256.as_deref());
-            crate::thumbnails::path_for(&index.thumbnails_dir, &key).map(|path| {
-                crate::platform::thumbnail_url(&index.thumbnails_dir, &index.id, &path)
-            })
+            crate::thumbnails::path_for(&index.thumbnails_dir, &key)
+                .map(|path| crate::platform::thumbnail_url(&index.thumbnails_dir, &index.id, &path))
         } else {
             None
         };
@@ -135,7 +134,10 @@ pub fn list_duplicates(index: &LibraryIndex) -> Result<Vec<DuplicateGroup>> {
 
     // Collect all sha256s for a single query
     let sha256s: Vec<String> = groups.iter().map(|(s, _, _)| s.clone()).collect();
-    let placeholders: String = (0..sha256s.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders: String = (0..sha256s.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
 
     let mut members_stmt = index.conn.prepare(&format!(
         "{SELECT_ASSET} {DUPLICATE_JOIN}
@@ -154,7 +156,9 @@ pub fn list_duplicates(index: &LibraryIndex) -> Result<Vec<DuplicateGroup>> {
         .collect::<rusqlite::Result<Vec<_>>>()?;
     attach_thumb_urls(index, &mut all_assets);
 
-    let mut assets_by_sha: std::collections::HashMap<String, Vec<Asset>> = std::collections::HashMap::new();
+    // Group assets by sha256
+    let mut assets_by_sha: std::collections::HashMap<String, Vec<Asset>> =
+        std::collections::HashMap::new();
     for asset in all_assets {
         if let Some(ref sha) = asset.sha256 {
             assets_by_sha.entry(sha.clone()).or_default().push(asset);
@@ -234,9 +238,8 @@ pub fn reorder_assets(
 
     let tx = index.conn.unchecked_transaction()?;
     {
-        let mut update = tx.prepare(
-            "UPDATE assets SET position = ?1 WHERE id = ?2 AND folder_id = ?3",
-        )?;
+        let mut update =
+            tx.prepare("UPDATE assets SET position = ?1 WHERE id = ?2 AND folder_id = ?3")?;
         for (position, asset_id) in ordered_ids.iter().enumerate() {
             update.execute(rusqlite::params![position as i64, asset_id, folder_id])?;
         }
@@ -343,7 +346,10 @@ mod tests {
 
         let assets = list_assets(&index, 1).unwrap();
         assert_eq!(
-            assets.iter().map(|a| a.filename.as_str()).collect::<Vec<_>>(),
+            assets
+                .iter()
+                .map(|a| a.filename.as_str())
+                .collect::<Vec<_>>(),
             vec!["a.jpg", "b.jpg", "c.jpg"]
         );
         assert!(assets.iter().all(|a| a.duplicate_count == 0));
@@ -366,7 +372,11 @@ mod tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
 
-        let ids: Vec<i64> = list_assets(&index, 1).unwrap().iter().map(|a| a.id).collect();
+        let ids: Vec<i64> = list_assets(&index, 1)
+            .unwrap()
+            .iter()
+            .map(|a| a.id)
+            .collect();
         let flipped = vec![ids[2], ids[0], ids[1]];
         reorder_assets(&index, 1, &flipped).unwrap();
 
@@ -379,10 +389,7 @@ mod tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
 
-        assert_eq!(
-            before, after,
-            "reordering must not alter any stored path"
-        );
+        assert_eq!(before, after, "reordering must not alter any stored path");
 
         let ordered: Vec<String> = list_assets(&index, 1)
             .unwrap()
@@ -400,8 +407,16 @@ mod tests {
     #[test]
     fn reorder_rejects_a_partial_or_duplicated_list() {
         let index = index();
-        seed(&index, "", &[("a.jpg", "aa"), ("b.jpg", "bb"), ("c.jpg", "cc")]);
-        let ids: Vec<i64> = list_assets(&index, 1).unwrap().iter().map(|a| a.id).collect();
+        seed(
+            &index,
+            "",
+            &[("a.jpg", "aa"), ("b.jpg", "bb"), ("c.jpg", "cc")],
+        );
+        let ids: Vec<i64> = list_assets(&index, 1)
+            .unwrap()
+            .iter()
+            .map(|a| a.id)
+            .collect();
 
         assert!(reorder_assets(&index, 1, &ids[..2]).is_err());
         assert!(reorder_assets(&index, 1, &[ids[0], ids[0], ids[1]]).is_err());
@@ -439,7 +454,13 @@ mod tests {
         let all = list_assets(&index, 1).unwrap();
         assert_eq!(all.len(), 4, "no asset is hidden by deduplication");
         assert!(all.iter().filter(|a| a.duplicate_count == 2).count() == 3);
-        assert_eq!(all.iter().find(|a| a.filename == "a.jpg").unwrap().duplicate_count, 0);
+        assert_eq!(
+            all.iter()
+                .find(|a| a.filename == "a.jpg")
+                .unwrap()
+                .duplicate_count,
+            0
+        );
 
         let (group_count, redundant) = duplicate_summary(&index).unwrap();
         assert_eq!((group_count, redundant), (1, 2));
@@ -469,13 +490,20 @@ mod tests {
         }
 
         assert!(list_duplicates(&index).unwrap().is_empty());
-        assert!(list_assets(&index, 1).unwrap().iter().all(|a| a.duplicate_count == 0));
+        assert!(list_assets(&index, 1)
+            .unwrap()
+            .iter()
+            .all(|a| a.duplicate_count == 0));
     }
 
     #[test]
     fn compact_positions_preserves_relative_order() {
         let index = index();
-        seed(&index, "", &[("a.jpg", "aa"), ("b.jpg", "bb"), ("c.jpg", "cc")]);
+        seed(
+            &index,
+            "",
+            &[("a.jpg", "aa"), ("b.jpg", "bb"), ("c.jpg", "cc")],
+        );
         index
             .conn
             .execute("UPDATE assets SET position = position * 10", [])
@@ -515,7 +543,10 @@ mod tests {
         // Stable across calls, distinct per asset, and cache-path safe.
         assert_eq!(thumbnail_key(7, None), thumbnail_key(7, None));
         assert_ne!(thumbnail_key(7, None), thumbnail_key(8, None));
-        assert!(crate::thumbnails::path_for(std::path::Path::new("/c"), &thumbnail_key(7, None)).is_some());
+        assert!(
+            crate::thumbnails::path_for(std::path::Path::new("/c"), &thumbnail_key(7, None))
+                .is_some()
+        );
     }
 
     #[test]
@@ -532,7 +563,10 @@ mod tests {
         let assets = list_assets(&index, 1).unwrap();
         assert_eq!(assets.len(), 2);
         for asset in &assets {
-            let url = asset.thumb_url.as_deref().expect("decodable asset needs a url");
+            let url = asset
+                .thumb_url
+                .as_deref()
+                .expect("decodable asset needs a url");
 
             // Points into the thumbnail cache, never at the user's own file.
             assert!(url.contains("thumbs"), "{url}");

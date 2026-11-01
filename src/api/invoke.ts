@@ -61,6 +61,10 @@ export const folderAncestry = (folderId: number) =>
 
 export const listAssets = (folderId: number) => call<Asset[]>('list_assets', { folderId });
 
+/** Generate thumbnails for an ordered batch of visible/near-visible assets. */
+export const generateThumbnailsForAssets = (assetIds: number[]) =>
+  call<void>('generate_thumbnails_for_assets_cmd', { assetIds });
+
 /** Persist display order in the index without touching files. */
 export const reorderAssets = (folderId: number, orderedIds: number[]) =>
   call<ReorderResult>('reorder_assets', { folderId, orderedIds });

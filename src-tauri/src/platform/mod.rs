@@ -70,9 +70,9 @@ pub fn ensure_library_dirs(
 
 /// Require an existing directory and return its canonical path for stable identity.
 pub fn validate_library_root(root: &std::path::Path) -> Result<PathBuf, PlatformError> {
-    let canonical = root.canonicalize().map_err(|error| {
-        PlatformError::AppData(format!("{}: {error}", root.display()))
-    })?;
+    let canonical = root
+        .canonicalize()
+        .map_err(|error| PlatformError::AppData(format!("{}: {error}", root.display())))?;
 
     if !canonical.is_dir() {
         return Err(PlatformError::AppData(format!(
@@ -191,7 +191,9 @@ mod tests {
         if cfg!(debug_assertions) {
             assert_eq!(url, "/__thumbs/abc123/v2/ab/abc123.jpg");
         } else {
-            assert!(url.starts_with("asset://localhost/") || url.starts_with("http://asset.localhost/"));
+            assert!(
+                url.starts_with("asset://localhost/") || url.starts_with("http://asset.localhost/")
+            );
         }
     }
 

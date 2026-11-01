@@ -84,12 +84,13 @@ fn migrate(conn: &Connection, migrations: &[Migration]) -> Result<()> {
         if migration.version <= current {
             continue;
         }
-        conn.execute_batch(&render(migration.sql)).map_err(|error| {
-            DatabaseError::Migration(format!(
-                "{} (v{}) failed: {error}",
-                migration.name, migration.version
-            ))
-        })?;
+        conn.execute_batch(&render(migration.sql))
+            .map_err(|error| {
+                DatabaseError::Migration(format!(
+                    "{} (v{}) failed: {error}",
+                    migration.name, migration.version
+                ))
+            })?;
         // Stamp after the DDL so an interrupted upgrade re-runs it. Every
         // statement is `IF NOT EXISTS`, so re-running is safe.
         conn.pragma_update(None, "user_version", migration.version)?;
@@ -149,7 +150,9 @@ mod tests {
     #[test]
     fn app_schema_creates_registry_and_settings() {
         let conn = open_in_memory(APP_MIGRATIONS).unwrap();
-        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
         assert_eq!(version, 1);
 
         conn.execute(
@@ -159,7 +162,10 @@ mod tests {
         .unwrap();
         assert_eq!(read_setting(&conn, "theme").unwrap(), None);
         write_setting(&conn, "theme", "dark").unwrap();
-        assert_eq!(read_setting(&conn, "theme").unwrap().as_deref(), Some("dark"));
+        assert_eq!(
+            read_setting(&conn, "theme").unwrap().as_deref(),
+            Some("dark")
+        );
     }
 
     #[test]
@@ -189,8 +195,19 @@ mod tests {
             rows
         };
         for column in [
-            "id", "folder_id", "filename", "rel_path", "ext", "mime", "width", "height",
-            "bytes", "mtime", "sha256", "decode_ok", "position",
+            "id",
+            "folder_id",
+            "filename",
+            "rel_path",
+            "ext",
+            "mime",
+            "width",
+            "height",
+            "bytes",
+            "mtime",
+            "sha256",
+            "decode_ok",
+            "position",
         ] {
             assert!(
                 asset_columns.iter().any(|name| name == column),
@@ -240,7 +257,8 @@ mod tests {
         )
         .unwrap();
 
-        conn.execute("DELETE FROM folders WHERE id = 1", []).unwrap();
+        conn.execute("DELETE FROM folders WHERE id = 1", [])
+            .unwrap();
         let remaining: i64 = conn
             .query_row("SELECT COUNT(*) FROM assets", [], |row| row.get(0))
             .unwrap();
@@ -264,7 +282,9 @@ mod tests {
         drop(open(&path, LIBRARY_MIGRATIONS).unwrap());
 
         let conn = open(&path, LIBRARY_MIGRATIONS).unwrap();
-        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
         assert_eq!(version, 1);
 
         std::fs::remove_dir_all(&dir).ok();

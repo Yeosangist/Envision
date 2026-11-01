@@ -66,7 +66,6 @@ pub fn resolve_existing_within(root: &Path, rel: &str) -> Result<PathBuf, PathEr
     Ok(canonical)
 }
 
-
 /// Pick a free `name (n).ext` path, starting at 2; return `None` after a bounded search.
 pub fn unique_destination(dir: &Path, filename: &str) -> Option<PathBuf> {
     let candidate = dir.join(filename);
@@ -123,7 +122,13 @@ mod tests {
     #[test]
     fn rejects_parent_traversal_in_every_spelling() {
         let root = Path::new("/library");
-        for rel in ["../secret.jpg", "a/../../secret.jpg", "..\\secret.jpg", "a/..", ".."] {
+        for rel in [
+            "../secret.jpg",
+            "a/../../secret.jpg",
+            "..\\secret.jpg",
+            "a/..",
+            "..",
+        ] {
             assert!(
                 resolve_within(root, rel).is_err(),
                 "expected {rel:?} to be rejected"

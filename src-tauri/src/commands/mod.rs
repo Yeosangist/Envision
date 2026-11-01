@@ -1,7 +1,10 @@
 
 //! Tauri command boundary: validate requests, call services, and return domain types.
 use crate::database::{delete_setting, read_setting, write_setting, APP_MIGRATIONS};
-use crate::domain::{Asset, DuplicateGroup, Folder, Library, LibrarySummary, MoveResult, ReorderResult, ScanProgress, ScanPhase, Settings, Stats};
+use crate::domain::{
+    Asset, DuplicateGroup, Folder, Library, LibrarySummary, MoveResult, ReorderResult, ScanPhase,
+    ScanProgress, Settings, Stats,
+};
 use crate::library::scan::{ScanHandle, ScanOptions, ScanOutcome};
 use crate::library::{self, AppState, LibraryError, LibraryIndex};
 use rusqlite::Connection;
@@ -25,7 +28,9 @@ impl From<LibraryError> for CommandError {
     fn from(error: LibraryError) -> Self {
         let category = match &error {
             LibraryError::NoOpenLibrary => "no_library",
-            LibraryError::NotFound(_) | LibraryError::FolderNotFound(_) | LibraryError::AssetNotFound(_) => "not_found",
+            LibraryError::NotFound(_)
+            | LibraryError::FolderNotFound(_)
+            | LibraryError::AssetNotFound(_) => "not_found",
             LibraryError::Invalid(_) => "invalid",
             LibraryError::Path(_) => "invalid_path",
             LibraryError::Io(_) => "io",
@@ -105,7 +110,9 @@ pub async fn add_library(
 
 #[tauri::command]
 pub async fn list_libraries(state: State<'_, Arc<AppState>>) -> Result<Vec<Library>> {
-    state.with_app_db(library::list_libraries).map_err(Into::into)
+    state
+        .with_app_db(library::list_libraries)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -125,7 +132,10 @@ pub async fn open_library(
     }
 
     if let Ok(thumbnails) = state.with_index(|index| Ok(index.thumbnails_dir.clone())) {
-        if let Err(error) = app.asset_protocol_scope().allow_directory(&thumbnails, true) {
+        if let Err(error) = app
+            .asset_protocol_scope()
+            .allow_directory(&thumbnails, true)
+        {
             log::warn!("could not scope the thumbnail cache: {error}");
         }
     }
@@ -163,9 +173,8 @@ pub async fn relink_library(
     path: String,
 ) -> Result<Library> {
     let was_open = state.open_library_id().as_deref() == Some(library_id.as_str());
-    let library = state.with_app_db(|conn| {
-        library::relink_library(conn, &library_id, &PathBuf::from(&path))
-    })?;
+    let library = state
+        .with_app_db(|conn| library::relink_library(conn, &library_id, &PathBuf::from(&path)))?;
 
     crate::platform::ensure_library_dirs(&app, &library.id)?;
 
@@ -199,10 +208,7 @@ fn emit(app: &AppHandle, progress: ScanProgress) {
 
 /// Reconcile the open library, then fingerprint changed files in the background.
 #[tauri::command]
-pub async fn scan_library(
-    app: AppHandle,
-    state: State<'_, Arc<AppState>>,
-) -> Result<ScanReport> {
+pub async fn scan_library(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<ScanReport> {
     let library_id = state
         .open_library_id()
         .ok_or_else(|| CommandError::from(LibraryError::NoOpenLibrary))?;
@@ -296,9 +302,7 @@ pub async fn scan_library(
                             updated: 0,
                             removed: 0,
                             duplicates: 0,
-                            current: current
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string()),
+                            current: current.file_name().map(|n| n.to_string_lossy().to_string()),
                         },
                     );
                 },
@@ -307,7 +311,9 @@ pub async fn scan_library(
             if let Ok(outcome) = outcome {
                 log::info!(
                     "fingerprinted {} files in {:?} ({} vanished)",
-                    outcome.fingerprinted, outcome.elapsed, outcome.missing
+                    outcome.fingerprinted,
+                    outcome.elapsed,
+                    outcome.missing
                 );
             }
         }
@@ -327,26 +333,24 @@ pub async fn scan_library(
         std::thread::spawn(move || {
             // Reopen index in background thread
             if let Ok(index_path) = crate::platform::library_index_path(&app_clone, &index_id) {
-                if let Ok(conn) = crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS) {
+                if let Ok(conn) =
+                    crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS)
+                {
                     let bg_index = LibraryIndex {
                         id: index_id,
                         root: index_root,
                         conn,
                         thumbnails_dir: index_thumbs,
                     };
-                    generate_thumbnails_with_callback(
-                        &bg_index,
-                        thumbnail_cpu_limit,
-                        |asset_id| {
-                            let _ = app_clone.emit(
-                                "thumbnails:ready",
-                                ThumbnailReadyEvent {
-                                    library_id: event_library_id.clone(),
-                                    asset_id,
-                                },
-                            );
-                        },
-                    );
+                    generate_thumbnails_with_callback(&bg_index, thumbnail_cpu_limit, |asset_id| {
+                        let _ = app_clone.emit(
+                            "thumbnails:ready",
+                            ThumbnailReadyEvent {
+                                library_id: event_library_id.clone(),
+                                asset_id,
+                            },
+                        );
+                    });
                 }
             }
         });
@@ -404,12 +408,24 @@ fn generate_thumbnails_for_folder_with_callback(
     generate_thumbnails_for_query(index, &sql, cpu_limit, on_ready);
 }
 
-pub fn generate_thumbnails_for_assets(index: &LibraryIndex, asset_ids: &[i64], cpu_limit: i64) {
+/// Render thumbnails for specific assets.
+pub fn generate_thumbnails_for_assets(
+    index: &LibraryIndex,
+    asset_ids: &[i64],
+    cpu_limit: i64,
+    on_ready: impl Fn(i64) + Sync,
+) {
     if asset_ids.is_empty() {
         return;
     }
-    let placeholders: String = (0..asset_ids.len()).map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!("SELECT id, rel_path, sha256 FROM assets WHERE decode_ok = 1 AND id IN ({})", placeholders);
+    let placeholders: String = (0..asset_ids.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT id, rel_path, sha256 FROM assets WHERE decode_ok = 1 AND id IN ({})",
+        placeholders
+    );
     // Build params
     let mut stmt = match index.conn.prepare(&sql) {
         Ok(stmt) => stmt,
@@ -419,15 +435,36 @@ pub fn generate_thumbnails_for_assets(index: &LibraryIndex, asset_ids: &[i64], c
         }
     };
     let params: Vec<i64> = asset_ids.to_vec();
-    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
-    let rows = match stmt.query_map(rusqlite::params_from_iter(params_refs), |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))).and_then(|mapped| mapped.collect::<rusqlite::Result<Vec<_>>>() ) {
+    let params_refs: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+    let rows = match stmt
+        .query_map(rusqlite::params_from_iter(params_refs), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .and_then(|mapped| mapped.collect::<rusqlite::Result<Vec<_>>>())
+    {
         Ok(rows) => rows,
         Err(error) => {
             log::error!("could not list images for thumbnails: {error}");
             return;
         }
     };
-    generate_thumbnails_from_rows(index, rows, cpu_limit, |_| {});
+    let mut rows = rows;
+    prioritize_thumbnail_rows(&mut rows, asset_ids);
+    generate_thumbnails_from_rows(index, rows, cpu_limit, on_ready);
+}
+
+fn prioritize_thumbnail_rows(rows: &mut [(i64, String, Option<String>)], asset_ids: &[i64]) {
+    let priority: std::collections::HashMap<i64, usize> = asset_ids
+        .iter()
+        .enumerate()
+        .map(|(position, asset_id)| (*asset_id, position))
+        .collect();
+    rows.sort_by_key(|(id, _, _)| priority.get(id).copied().unwrap_or(usize::MAX));
 }
 
 fn generate_thumbnails_for_query(
@@ -483,35 +520,39 @@ fn generate_thumbnails_from_rows(
     let thumbnails_dir = index.thumbnails_dir.clone();
     let root = index.root.clone();
 
-    crate::thumbnails::with_worker_pool(cpu_limit, || {
-        rows.par_iter().for_each(|(id, rel_path, sha256)| {
-            let key = library::queries::thumbnail_key(*id, sha256.as_deref());
-            if crate::thumbnails::is_cached(&thumbnails_dir, &key) {
-                cached.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                return;
-            }
-
-            // Stored paths are untrusted; re-derive before opening anything.
-            let source = match crate::paths::resolve_within(&root, rel_path) {
-                Ok(path) => path,
-                Err(_) => return,
-            };
-
-            match crate::thumbnails::ensure(&thumbnails_dir, &key, &source, true) {
-                Ok(Some(_)) => {
-                    made.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    on_ready(*id);
+    // Run on a pool sized by the user's setting instead of Rayon's global pool,
+    // so limiting thumbnails does not affect any other image work.
+    for batch in rows.chunks(8) {
+        crate::thumbnails::with_worker_pool(cpu_limit, || {
+            batch.par_iter().for_each(|(id, rel_path, sha256)| {
+                let key = library::queries::thumbnail_key(*id, sha256.as_deref());
+                if crate::thumbnails::is_cached(&thumbnails_dir, &key) {
+                    cached.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    return;
                 }
-                Ok(None) => {}
-                Err(error) => {
-                    let count = failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if count < 3 {
-                        log::warn!("thumbnail for {rel_path} failed: {error}");
+
+                // Stored paths are untrusted; re-derive before opening anything.
+                let source = match crate::paths::resolve_within(&root, rel_path) {
+                    Ok(path) => path,
+                    Err(_) => return,
+                };
+
+                match crate::thumbnails::ensure(&thumbnails_dir, &key, &source, true) {
+                    Ok(Some(_)) => {
+                        made.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        on_ready(*id);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        let count = failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if count < 3 {
+                            log::warn!("thumbnail for {rel_path} failed: {error}");
+                        }
                     }
                 }
-            }
+            });
         });
-    });
+    }
 
     let made = made.load(std::sync::atomic::Ordering::Relaxed);
     let failed = failed.load(std::sync::atomic::Ordering::Relaxed);
@@ -561,7 +602,9 @@ pub async fn generate_thumbnails_for_folder_cmd(
     let event_library_id = index_id.clone();
     std::thread::spawn(move || {
         if let Ok(index_path) = crate::platform::library_index_path(&app, &index_id) {
-            if let Ok(conn) = crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS) {
+            if let Ok(conn) =
+                crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS)
+            {
                 let bg_index = LibraryIndex {
                     id: index_id,
                     root: index_root,
@@ -603,14 +646,25 @@ pub async fn generate_thumbnails_for_assets_cmd(
     let app = state.app.clone();
     std::thread::spawn(move || {
         if let Ok(index_path) = crate::platform::library_index_path(&app, &index_id) {
-            if let Ok(conn) = crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS) {
+            if let Ok(conn) =
+                crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS)
+            {
                 let bg_index = LibraryIndex {
                     id: index_id,
                     root: index_root,
                     conn,
                     thumbnails_dir: index_thumbs,
                 };
-                generate_thumbnails_for_assets(&bg_index, &asset_ids, cpu_limit);
+                let event_library_id = bg_index.id.clone();
+                generate_thumbnails_for_assets(&bg_index, &asset_ids, cpu_limit, |asset_id| {
+                    let _ = app.emit(
+                        "thumbnails:ready",
+                        ThumbnailReadyEvent {
+                            library_id: event_library_id.clone(),
+                            asset_id,
+                        },
+                    );
+                });
             }
         }
     });
@@ -631,11 +685,16 @@ pub async fn list_child_folders(
 /// List all library folders for navigation and breadcrumbs.
 #[tauri::command]
 pub async fn list_folders(state: State<'_, Arc<AppState>>) -> Result<Vec<Folder>> {
-    state.with_index(library::list_all_folders).map_err(Into::into)
+    state
+        .with_index(library::list_all_folders)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn folder_ancestry(state: State<'_, Arc<AppState>>, folder_id: i64) -> Result<Vec<Folder>> {
+pub async fn folder_ancestry(
+    state: State<'_, Arc<AppState>>,
+    folder_id: i64,
+) -> Result<Vec<Folder>> {
     state
         .with_index(|index| library::folder_ancestry(index, folder_id))
         .map_err(Into::into)
@@ -707,9 +766,9 @@ pub async fn read_asset_bytes(
     let bytes = state
         .with_index(|index| {
             let asset = library::asset_by_id(index, asset_id)?;
-            let path = index
-                .asset_real_path(&asset.rel_path)?
-                .ok_or_else(|| LibraryError::Invalid(format!("{} is not readable", asset.rel_path)))?;
+            let path = index.asset_real_path(&asset.rel_path)?.ok_or_else(|| {
+                LibraryError::Invalid(format!("{} is not readable", asset.rel_path))
+            })?;
             let bytes = std::fs::read(&path)?;
             Ok(bytes)
         })
@@ -718,11 +777,9 @@ pub async fn read_asset_bytes(
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Open formats Envision does not decode with the desktop's registered handler.
 #[tauri::command]
-pub async fn open_asset_externally(
-    state: State<'_, Arc<AppState>>,
-    asset_id: i64,
-) -> Result<()> {
+pub async fn open_asset_externally(state: State<'_, Arc<AppState>>, asset_id: i64) -> Result<()> {
     use tauri_plugin_opener::OpenerExt;
 
     let (path, _) = state.with_index(|index| {
@@ -733,7 +790,10 @@ pub async fn open_asset_externally(
         Ok((path, asset.ext))
     })?;
 
-    state.app.opener().open_path(path.to_string_lossy().to_string(), None::<&str>)?;
+    state
+        .app
+        .opener()
+        .open_path(path.to_string_lossy().to_string(), None::<&str>)?;
     Ok(())
 }
 
@@ -746,7 +806,9 @@ pub struct DuplicateSummary {
 
 #[tauri::command]
 pub async fn list_duplicates(state: State<'_, Arc<AppState>>) -> Result<Vec<DuplicateGroup>> {
-    state.with_index(library::list_duplicates).map_err(Into::into)
+    state
+        .with_index(library::list_duplicates)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -759,7 +821,6 @@ pub async fn duplicate_summary(state: State<'_, Arc<AppState>>) -> Result<Duplic
         .map_err(Into::into)
 }
 
-/// Open formats Envision does not decode with the desktop's registered handler.
 /// Reclaim unused thumbnail cache entries on explicit request.
 #[tauri::command]
 pub async fn prune_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64> {
@@ -818,8 +879,11 @@ fn read_settings(conn: &Connection) -> crate::database::Result<Settings> {
     let custom_background_blur = read_setting(conn, "custom_background_blur")?
         .and_then(|v| v.parse().ok())
         .unwrap_or(12.0);
-    let custom_background_image = read_setting(conn, THEME_BACKGROUND_KEY)?
-        .and_then(|path| PathBuf::from(path).file_name().map(|name| name.to_string_lossy().to_string()));
+    let custom_background_image = read_setting(conn, THEME_BACKGROUND_KEY)?.and_then(|path| {
+        PathBuf::from(path)
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+    });
 
     Ok(Settings {
         theme,
@@ -851,18 +915,38 @@ pub async fn get_settings(state: State<'_, Arc<AppState>>) -> Result<Settings> {
 /// Persist settings, excluding the background filename derived from its path.
 fn persist_settings(conn: &Connection, settings: &Settings) -> crate::database::Result<()> {
     write_setting(conn, "theme", &settings.theme)?;
-    write_setting(conn, "interface_scale", &settings.interface_scale.to_string())?;
+    write_setting(
+        conn,
+        "interface_scale",
+        &settings.interface_scale.to_string(),
+    )?;
     write_setting(
         conn,
         "gif_autoplay",
-        if settings.gif_autoplay { "true" } else { "false" },
+        if settings.gif_autoplay {
+            "true"
+        } else {
+            "false"
+        },
     )?;
-    write_setting(conn, "max_playing_gifs", &settings.max_playing_gifs.to_string())?;
-    write_setting(conn, "folder_card_size", &settings.folder_card_size.to_string())?;
+    write_setting(
+        conn,
+        "max_playing_gifs",
+        &settings.max_playing_gifs.to_string(),
+    )?;
+    write_setting(
+        conn,
+        "folder_card_size",
+        &settings.folder_card_size.to_string(),
+    )?;
     write_setting(
         conn,
         "hide_duplicates",
-        if settings.hide_duplicates { "true" } else { "false" },
+        if settings.hide_duplicates {
+            "true"
+        } else {
+            "false"
+        },
     )?;
     match &settings.import_folder {
         Some(path) if !path.trim().is_empty() => write_setting(conn, "import_folder", path)?,
@@ -873,7 +957,11 @@ fn persist_settings(conn: &Connection, settings: &Settings) -> crate::database::
         "import_ask",
         if settings.import_ask { "true" } else { "false" },
     )?;
-    write_setting(conn, "thumbnail_cpu_limit", &settings.thumbnail_cpu_limit.to_string())?;
+    write_setting(
+        conn,
+        "thumbnail_cpu_limit",
+        &settings.thumbnail_cpu_limit.to_string(),
+    )?;
     write_setting(conn, "custom_text", &settings.custom_text)?;
     write_setting(conn, "custom_text_muted", &settings.custom_text_muted)?;
     write_setting(conn, "custom_accent", &settings.custom_accent)?;
@@ -906,7 +994,11 @@ pub async fn set_theme_background(
     state: State<'_, Arc<AppState>>,
     path: Option<String>,
 ) -> Result<Option<String>> {
-    let resolved = match path.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    let resolved = match path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         Some(chosen) => {
             let candidate = PathBuf::from(chosen);
             let canonical = candidate.canonicalize().map_err(|error| CommandError {
@@ -935,7 +1027,8 @@ pub async fn set_theme_background(
         .map_err(CommandError::from)?;
 
     Ok(resolved.and_then(|path| {
-        path.file_name().map(|name| name.to_string_lossy().to_string())
+        path.file_name()
+            .map(|name| name.to_string_lossy().to_string())
     }))
 }
 
@@ -1038,9 +1131,8 @@ pub fn seed_default_settings(conn: &Connection) -> crate::database::Result<()> {
 }
 
 pub fn open_app_db(app: &AppHandle) -> crate::database::Result<Connection> {
-    let path = crate::platform::app_db(app).map_err(|error| {
-        crate::database::DatabaseError::Migration(error.to_string())
-    })?;
+    let path = crate::platform::app_db(app)
+        .map_err(|error| crate::database::DatabaseError::Migration(error.to_string()))?;
     let conn = crate::database::open(&path, APP_MIGRATIONS)?;
     seed_default_settings(&conn)?;
     Ok(conn)
@@ -1055,7 +1147,9 @@ pub async fn prune_all_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64
         if library.missing {
             continue;
         }
-        let root = match crate::platform::validate_library_root(std::path::Path::new(&library.root_path)) {
+        let root = match crate::platform::validate_library_root(std::path::Path::new(
+            &library.root_path,
+        )) {
             Ok(path) => path,
             Err(_) => continue,
         };
@@ -1089,7 +1183,6 @@ pub async fn check_gallery_dl() -> Result<bool> {
         .unwrap_or(false))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1104,7 +1197,10 @@ mod tests {
         assert_eq!(defaults.theme, "system");
         assert_eq!(defaults.interface_scale, 1.0);
         assert!(!defaults.hide_duplicates);
-        assert_eq!(defaults.thumbnail_cpu_limit, 0, "0 means all available cores");
+        assert_eq!(
+            defaults.thumbnail_cpu_limit, 0,
+            "0 means all available cores"
+        );
         assert_eq!(defaults.custom_background_image, None);
 
         // Out-of-range input is clamped on the way in, not on the way out.
@@ -1139,6 +1235,22 @@ mod tests {
     }
 
     #[test]
+    fn thumbnail_batches_follow_the_requested_priority_order() {
+        let mut rows = vec![
+            (30, "third.jpg".to_string(), None),
+            (10, "first.jpg".to_string(), None),
+            (20, "second.jpg".to_string(), None),
+        ];
+
+        prioritize_thumbnail_rows(&mut rows, &[10, 20, 30]);
+
+        assert_eq!(
+            rows.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
+            vec![10, 20, 30]
+        );
+    }
+
+    #[test]
     fn a_corrupt_stored_value_cannot_reach_the_ui() {
         let conn = open_in_memory(APP_MIGRATIONS).unwrap();
         seed_default_settings(&conn).unwrap();
@@ -1162,7 +1274,10 @@ mod tests {
         write_setting(&conn, THEME_BACKGROUND_KEY, "/pics/wall/ridge.png").unwrap();
 
         let settings = read_settings(&conn).unwrap();
-        assert_eq!(settings.custom_background_image.as_deref(), Some("ridge.png"));
+        assert_eq!(
+            settings.custom_background_image.as_deref(),
+            Some("ridge.png")
+        );
 
         // Writing the settings back must not clobber the stored path with the
         // name that came out of the read.

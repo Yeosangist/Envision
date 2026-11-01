@@ -30,10 +30,11 @@ pub fn index_totals(path: &Path) -> Result<LibraryTotals> {
     )?;
 
     let images = conn.query_row("SELECT COUNT(*) FROM assets", [], |row| row.get(0))?;
-    let folders =
-        conn.query_row("SELECT COUNT(*) FROM folders WHERE rel_path <> ''", [], |row| {
-            row.get(0)
-        })?;
+    let folders = conn.query_row(
+        "SELECT COUNT(*) FROM folders WHERE rel_path <> ''",
+        [],
+        |row| row.get(0),
+    )?;
     let bytes = conn.query_row("SELECT COALESCE(SUM(bytes), 0) FROM assets", [], |row| {
         row.get(0)
     })?;

@@ -15,7 +15,7 @@ const COMMIT_DELAY_MS = 150;
 const THEME_LABELS: Record<ThemeMode, { label: string; hint: string }> = {
   system: { label: 'System', hint: 'Follows the desktop’s light or dark setting.' },
   light: { label: 'Light', hint: 'Bright surfaces and dark text.' },
-  grey: { label: 'Grey', hint: 'The soft dark palette Envision has always used.' },
+  grey: { label: 'Grey', hint: 'Default soft dark palette.' },
   oled: { label: 'OLED', hint: 'Black surfaces, for an OLED display.' },
   custom: {
     label: 'Custom',

@@ -1,8 +1,8 @@
 
-use super::fingerprint::Cancel;
 //! Reconcile the derived index with a library directory without modifying its files.
 #[cfg(test)]
 use super::fingerprint;
+use super::fingerprint::Cancel;
 use super::queries::compact_positions;
 use super::{LibraryError, LibraryIndex, Result};
 use crate::domain::to_rel_string;
@@ -43,7 +43,12 @@ pub struct ScanOutcome {
 /// A handle for cancelling a running scan.
 pub type ScanHandle = Cancel;
 
-pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &super::fingerprint::Cancel) -> Result<ScanOutcome> {
+/// Reconcile the index synchronously without Tauri dependencies or filesystem writes.
+pub fn reconcile_index(
+    index: &LibraryIndex,
+    options: ScanOptions,
+    cancel: &super::fingerprint::Cancel,
+) -> Result<ScanOutcome> {
     let started = Instant::now();
     let mut outcome = ScanOutcome::default();
 
@@ -83,7 +88,10 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
             return Ok(outcome);
         }
         let (_, parent_rel) = split_relative(relative);
-        let parent_id = folders.get(parent_rel.as_str()).copied().unwrap_or(root_folder_id);
+        let parent_id = folders
+            .get(parent_rel.as_str())
+            .copied()
+            .unwrap_or(root_folder_id);
         let id = ensure_folder(index, Some(parent_id), relative)?;
         folders.insert(relative.clone(), id);
         outcome.folders += 1;
@@ -92,9 +100,9 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
     // Where a newly discovered image lands in its folder. Seeded up front so the
     // walk closure never has to fall back to an error path.
     let mut next_positions: HashMap<i64, i64> = {
-        let mut stmt = index
-            .conn
-            .prepare("SELECT folder_id, COALESCE(MAX(position), -1) + 1 FROM assets GROUP BY folder_id")?;
+        let mut stmt = index.conn.prepare(
+            "SELECT folder_id, COALESCE(MAX(position), -1) + 1 FROM assets GROUP BY folder_id",
+        )?;
         let rows = stmt
             .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -138,7 +146,10 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
 
-            let parent_rel = relative.rsplit_once('/').map(|(head, _)| head).unwrap_or("");
+            let parent_rel = relative
+                .rsplit_once('/')
+                .map(|(head, _)| head)
+                .unwrap_or("");
             let folder_id = folders.get(parent_rel).copied().unwrap_or(root_folder_id);
             let filename = entry
                 .path
@@ -162,7 +173,15 @@ pub fn reconcile_index(index: &LibraryIndex, options: ScanOptions, cancel: &supe
                     .ok();
 
             match existing {
-                Some((old_bytes, old_mtime, _sha256, _position, decode_ok, old_width, _old_height)) => {
+                Some((
+                    old_bytes,
+                    old_mtime,
+                    _sha256,
+                    _position,
+                    decode_ok,
+                    old_width,
+                    _old_height,
+                )) => {
                     let expected_decodable = (kind == MediaKind::Decodable) as i64;
                     let missing_dimensions = expected_decodable == 1 && old_width.is_none();
 
@@ -270,7 +289,13 @@ struct Entry {
     relative_directory: Option<String>,
 }
 
-fn collect_entries<F>(index: &LibraryIndex, options: ScanOptions, cancel: &Cancel, mut visit: F) -> bool
+/// Visit indexable entries in relative-path order for deterministic initial ordering.
+fn collect_entries<F>(
+    index: &LibraryIndex,
+    options: ScanOptions,
+    cancel: &Cancel,
+    mut visit: F,
+) -> bool
 where
     F: FnMut(Entry),
 {
@@ -336,11 +361,8 @@ fn split_relative(relative: &str) -> (String, String) {
     }
 }
 
-fn ensure_folder(
-    index: &LibraryIndex,
-    parent_id: Option<i64>,
-    rel_path: &str,
-) -> Result<i64> {
+/// Insert or fetch a folder row, creating the row for `parent_rel` if needed.
+fn ensure_folder(index: &LibraryIndex, parent_id: Option<i64>, rel_path: &str) -> Result<i64> {
     if let Some(existing) = super::folder_by_rel(index, rel_path)? {
         return Ok(existing.id);
     }
@@ -352,11 +374,7 @@ fn ensure_folder(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "Library".to_string())
     } else {
-        rel_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(rel_path)
-            .to_string()
+        rel_path.rsplit('/').next().unwrap_or(rel_path).to_string()
     };
 
     index.conn.execute(
@@ -532,7 +550,12 @@ mod tests {
         write_png(&root.join("a.png"), "a");
         write_png(&root.join("b.png"), "b");
 
-        let outcome = reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        let outcome = reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
         assert_eq!(outcome.added, 2);
         assert_eq!(outcome.removed, 0);
         assert_eq!(asset_count(&index).unwrap(), 2);
@@ -553,14 +576,23 @@ mod tests {
         write_png(&root.join("album/a.png"), "a");
         write_png(&root.join("album/2024/b.png"), "b");
 
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         let folders = super::super::list_all_folders(&index).unwrap();
         assert_eq!(folders.len(), 3, "root plus album plus album/2024");
 
-        let album = super::super::folder_by_rel(&index, "album").unwrap().unwrap();
+        let album = super::super::folder_by_rel(&index, "album")
+            .unwrap()
+            .unwrap();
         assert_eq!(album.image_count, 1);
-        let deep = super::super::folder_by_rel(&index, "album/2024").unwrap().unwrap();
+        let deep = super::super::folder_by_rel(&index, "album/2024")
+            .unwrap()
+            .unwrap();
         assert_eq!(deep.image_count, 1);
         assert_eq!(super::super::root_folder(&index).unwrap().image_count, 1);
 
@@ -577,7 +609,12 @@ mod tests {
         write_png(&root.join(".hidden/secret.png"), "secret");
         write_png(&root.join(".dotfile.png"), "dot");
 
-        let outcome = reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        let outcome = reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
         assert_eq!(outcome.added, 1, "only keep.png should be indexed");
 
         std::fs::remove_dir_all(&root).ok();
@@ -589,7 +626,12 @@ mod tests {
         std::fs::write(root.join("photo.heic"), b"ftypheic").unwrap();
         std::fs::write(root.join("modern.avif"), b"ftypavif").unwrap();
 
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         let assets = super::super::queries::list_assets(&index, 1).unwrap();
         assert_eq!(assets.len(), 2, "external formats stay visible");
@@ -611,7 +653,12 @@ mod tests {
         .save_with_format(&path, image::ImageFormat::Jpeg)
         .unwrap();
 
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         let assets = super::super::queries::list_assets(&index, 1).unwrap();
         assert_eq!(assets.len(), 1);
@@ -629,16 +676,30 @@ mod tests {
     fn a_rescan_repairs_dimensions_that_were_never_read() {
         let (index, root) = temp_index("repair");
         write_png(&root.join("a.png"), "a");
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         index
             .conn
             .execute("UPDATE assets SET width = NULL, height = NULL", [])
             .unwrap();
         let stranded = super::super::queries::list_assets(&index, 1).unwrap();
-        assert_eq!(stranded[0].width, None, "precondition: dimensions are missing");
+        assert_eq!(
+            stranded[0].width, None,
+            "precondition: dimensions are missing"
+        );
 
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        // The file is not touched between the two scans.
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         let repaired = super::super::queries::list_assets(&index, 1).unwrap();
         assert_eq!(
@@ -657,7 +718,12 @@ mod tests {
             write_png(&root.join(name), name);
         }
 
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         let ids: Vec<i64> = super::super::queries::list_assets(&index, 1)
             .unwrap()
@@ -667,7 +733,12 @@ mod tests {
         let flipped = vec![ids[2], ids[0], ids[1]];
         super::super::queries::reorder_assets(&index, 1, &flipped).unwrap();
 
-        let outcome = reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        let outcome = reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
         assert_eq!(outcome.added, 0);
         assert_eq!(outcome.removed, 0);
         assert_eq!(outcome.unchanged, 3, "nothing should have changed");
@@ -687,11 +758,21 @@ mod tests {
         let (index, root) = temp_index("removed");
         write_png(&root.join("a.png"), "a");
         write_png(&root.join("b.png"), "b");
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         std::fs::remove_file(root.join("b.png")).unwrap();
 
-        let outcome = reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        let outcome = reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
         assert_eq!(outcome.removed, 1);
         assert_eq!(asset_count(&index).unwrap(), 1);
 
@@ -703,7 +784,12 @@ mod tests {
         let (index, root) = temp_index("touched");
         write_png(&root.join("a.png"), "a");
         write_png(&root.join("b.png"), "b");
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         index
             .conn
@@ -715,14 +801,22 @@ mod tests {
         let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
         set_mtime(&root.join("b.png"), later);
 
-        let outcome = reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        let outcome = reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
         assert_eq!(outcome.updated, 1);
 
         let assets = super::super::queries::list_assets(&index, 1).unwrap();
         let b = assets.iter().find(|a| a.filename == "b.png").unwrap();
         assert_eq!(b.position, 1, "a touched file must not jump in the grid");
         let a = assets.iter().find(|a| a.filename == "a.png").unwrap();
-        assert!(a.sha256.is_some(), "an untouched file keeps its fingerprint");
+        assert!(
+            a.sha256.is_some(),
+            "an untouched file keeps its fingerprint"
+        );
         assert_eq!(assets.iter().filter(|a| a.sha256.is_some()).count(), 1);
 
         std::fs::remove_dir_all(&root).ok();
@@ -733,11 +827,21 @@ mod tests {
         let (index, root) = temp_index("folder-gone");
         std::fs::create_dir_all(root.join("album")).unwrap();
         write_png(&root.join("album/a.png"), "a");
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
         assert_eq!(super::super::list_all_folders(&index).unwrap().len(), 2);
 
         std::fs::remove_dir_all(root.join("album")).unwrap();
-        reconcile_index(&index, ScanOptions::default(), &super::fingerprint::Cancel::new()).unwrap();
+        reconcile_index(
+            &index,
+            ScanOptions::default(),
+            &super::fingerprint::Cancel::new(),
+        )
+        .unwrap();
 
         assert_eq!(super::super::list_all_folders(&index).unwrap().len(), 1);
         assert_eq!(asset_count(&index).unwrap(), 0);
