@@ -6,9 +6,12 @@ export interface AncestryProps {
   onNavigate: (folderId: FolderId) => void;
   /** Trailing text, e.g. a live result count. */
   suffix?: string;
+  /** Library name to display for the root folder instead of "Library". */
+  libraryName?: string;
 }
 
-export function Ancestry({ ancestry, onNavigate, suffix }: AncestryProps) {
+/** Breadcrumb trail that preserves the current folder when ancestors overflow. */
+export function Ancestry({ ancestry, onNavigate, suffix, libraryName }: AncestryProps) {
   if (ancestry.length === 0) return null;
 
   return (
@@ -25,7 +28,7 @@ export function Ancestry({ ancestry, onNavigate, suffix }: AncestryProps) {
               )}
               {isLast ? (
                 <span className="ancestry-current" title={folder.rel_path || folder.name}>
-                  {folder.rel_path === '' ? 'Library' : folder.name}
+                  {folder.rel_path === '' ? (libraryName || 'Library') : folder.name}
                 </span>
               ) : (
                 <button
@@ -34,7 +37,7 @@ export function Ancestry({ ancestry, onNavigate, suffix }: AncestryProps) {
                   onClick={() => onNavigate(folder.id)}
                   title={folder.rel_path || folder.name}
                 >
-                  {folder.rel_path === '' ? 'Library' : folder.name}
+                  {folder.rel_path === '' ? (libraryName || 'Library') : folder.name}
                 </button>
               )}
             </li>

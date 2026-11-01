@@ -18,7 +18,7 @@ export type { ThemeMode };
 
 /** Temporary defaults, replaced by normalized backend settings on load. */
 const DEFAULTS: Settings = {
-  theme: 'system',
+  theme: 'grey',
   interface_scale: 1,
   gif_autoplay: true,
   max_playing_gifs: 4,

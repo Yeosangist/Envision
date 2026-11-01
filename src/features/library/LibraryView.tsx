@@ -38,6 +38,8 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
     addFolder,
   } = useLibraryStore();
 
+  const pendingThumbnails = assets.filter((a) => a.decode_ok && !a.thumb_url).length;
+
   const ancestry = useMemo(() => ancestryOf(folders, folderId), [folders, folderId]);
 
   const onThumbnailReady = useCallback((event: { library_id: string; asset_id: number }) => {
@@ -72,6 +74,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
         const target = Number(overId.slice('folder:'.length));
         const assetIds = selected.size > 0 ? [...selected] : [Number(active.id)];
         moveToFolder(assetIds, target);
+        setSelected(new Set());
         return;
       }
 
@@ -102,7 +105,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
 
   return (
     <div className="library-view">
-      <Ancestry ancestry={ancestry} onNavigate={navigate} />
+      <Ancestry ancestry={ancestry} onNavigate={navigate} libraryName={library?.name} />
 
       <div className="library-scroll" ref={scrollRef}>
         <div className="library-inner">
@@ -130,7 +133,16 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
             <div className="library-status">
               {loading
                 ? 'Loading…'
-                : `${assets.length} image${assets.length === 1 ? '' : 's'} · drag to reorder · drop on a folder to move the file`}
+                : `${assets.length} image${assets.length === 1 ? '' : 's'}${selected.size > 0 ? ` · ${selected.size} selected` : ''}${pendingThumbnails > 0 ? ` · ${pendingThumbnails} thumbnail${pendingThumbnails === 1 ? '' : 's'} generating` : ''} · drag to reorder · drop on a folder to move the file`}
+              {selected.size > 0 && (
+                <button
+                  type="button"
+                  className="library-status-action"
+                  onClick={() => setSelected(new Set())}
+                >
+                  Deselect all
+                </button>
+              )}
             </div>
 
             {childFolders.length === 0 && assets.length === 0 && !loading && (

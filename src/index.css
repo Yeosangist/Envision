@@ -329,6 +329,23 @@ the bar keeps one baseline, and labelled through `aria-label` instead. */
   color: var(--text-muted);
   font-size: 12px;
   margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.library-status-action {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.library-status-action:hover {
+  color: var(--text);
 }
 
 .library-empty {
@@ -967,7 +984,7 @@ treatment rather than the default surface colour. */
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  width: min(100%, 1280px);
+  width: min(100%, 1000px);
   margin: 0 auto;
   padding: 20px 24px 32px;
 }

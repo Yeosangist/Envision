@@ -85,12 +85,12 @@ function Tile({ asset, libraryId, thumbnailRevision, selected, onOpen, onToggleS
             className="masonry-unsupported"
             title={
               target
-                ? 'Thumbnail loading'
+                ? 'Thumbnail generating'
                 : `${asset.ext.toUpperCase()} is not decoded by Envision and opens externally`
             }
           >
             <span className="masonry-unsupported-ext">
-              {target ? (failedKey === target.key ? '·' : '') : asset.ext.toUpperCase()}
+              {target ? (failedKey === target.key ? '…' : '⏳') : asset.ext.toUpperCase()}
             </span>
           </div>
         )}
