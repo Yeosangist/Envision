@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -11,6 +11,7 @@ import { SortableContext } from '@dnd-kit/sortable';
 import { MasonryGrid } from './MasonryGrid';
 import { FolderCard } from './FolderCard';
 import { Ancestry } from '../../components/Ancestry';
+import { CloseIcon } from '../../components/icons';
 import { ancestryOf, useLibraryStore } from '../../state/libraryStore';
 
 export interface LibraryViewProps {
@@ -20,6 +21,7 @@ export interface LibraryViewProps {
 export function LibraryView({ onOpenAsset }: LibraryViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
 
   const {
     folders,
@@ -99,10 +101,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
                 <button
                   type="button"
                   className="folder-card folder-card-new"
-                  onClick={() => {
-                    const name = window.prompt('New folder name');
-                    if (name?.trim()) void addFolder(name);
-                  }}
+                  onClick={() => setNewFolderOpen(true)}
                 >
                   <span className="folder-card-plate folder-card-plate-new" aria-hidden="true">
                     ＋
@@ -126,10 +125,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
                 <button
                   type="button"
                   className="folder-card folder-card-new"
-                  onClick={() => {
-                    const name = window.prompt('New folder name');
-                    if (name?.trim()) void addFolder(name);
-                  }}
+                  onClick={() => setNewFolderOpen(true)}
                 >
                   <span className="folder-card-plate folder-card-plate-new" aria-hidden="true">
                     ＋
@@ -163,6 +159,91 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
           </DndContext>
         </div>
       </div>
+      {newFolderOpen && (
+        <NewFolderDialog
+          onClose={() => setNewFolderOpen(false)}
+          onCreate={async (name) => {
+            await addFolder(name);
+            setNewFolderOpen(false);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+interface NewFolderDialogProps {
+  onClose: () => void;
+  onCreate: (name: string) => Promise<void>;
+}
+
+function NewFolderDialog({ onClose, onCreate }: NewFolderDialogProps) {
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !creating) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [creating, onClose]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || creating) return;
+    setCreating(true);
+    try {
+      await onCreate(trimmed);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="modal-scrim"
+        aria-label="Cancel new folder"
+        onClick={() => !creating && onClose()}
+      />
+      <form className="modal new-folder-modal" role="dialog" aria-modal="true" aria-labelledby="new-folder-title" onSubmit={(event) => void handleSubmit(event)}>
+        <header className="modal-heading">
+          <h2 id="new-folder-title">New folder</h2>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            disabled={creating}
+            aria-label="Cancel"
+            title="Cancel"
+          >
+            <CloseIcon />
+          </button>
+        </header>
+        <div className="modal-body new-folder-body">
+          <label htmlFor="new-folder-name">Folder name</label>
+          <input
+            id="new-folder-name"
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={255}
+            placeholder="Enter a folder name"
+            disabled={creating}
+          />
+        </div>
+        <footer className="new-folder-actions">
+          <button type="button" onClick={onClose} disabled={creating}>
+            Cancel
+          </button>
+          <button type="submit" className="primary" disabled={!name.trim() || creating}>
+            {creating ? 'Creating…' : 'Create folder'}
+          </button>
+        </footer>
+      </form>
+    </>
   );
 }

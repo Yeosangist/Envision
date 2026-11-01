@@ -24,6 +24,11 @@ function describeCounts(summary: LibrarySummary | undefined): string {
   }`;
 }
 
+function displayLibraryPath(path: string): string {
+  const displayedPath = path.replace(/^\/home\/[^/]+\/?/, '');
+  return displayedPath || '~';
+}
+
 export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps) {
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [summaries, setSummaries] = useState<Record<string, LibrarySummary>>({});
@@ -109,55 +114,55 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
   };
 
   return (
-    <div className="launcher">
-      <header className="launcher-header">
-        <div className="launcher-header-row">
-          <div>
-            <h1>Envision</h1>
-            <p>A local-first viewer for the images you already have.</p>
+    <div className="launcher-screen">
+      <div className="launcher">
+        <header className="launcher-header">
+          <div className="launcher-header-row">
+            <div>
+              <h1>Envision</h1>
+              <p>A local-first viewer for the images you already have.</p>
+            </div>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={onOpenSettings}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <CogIcon />
+            </button>
           </div>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={onOpenSettings}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <CogIcon />
+        </header>
+
+        <div className="launcher-actions">
+          <button type="button" className="primary" onClick={handleAdd} disabled={busy !== null}>
+            Add a library
+          </button>
+          <button type="button" onClick={() => onOpenSettings()} disabled={busy !== null}>
+            Import board
           </button>
         </div>
-      </header>
 
-      <div className="launcher-actions">
-        <button type="button" className="primary" onClick={handleAdd} disabled={busy !== null}>
-          Add a library
-        </button>
-        <button type="button" onClick={() => onOpenSettings()} disabled={busy !== null}>
-          Import board
-        </button>
-        <button type="button" onClick={refresh} disabled={loading}>
-          Refresh
-        </button>
+        {error && (
+          <div className="launcher-error" role="alert">
+            {error}
+          </div>
+        )}
+
+        {loading && libraries.length === 0 && <p className="launcher-hint">Loading libraries…</p>}
+
+        {!loading && libraries.length === 0 && (
+          <p className="launcher-hint">
+            No libraries yet. Choose a folder of images to get started — nothing is copied,
+            and Envision never writes inside it unless you move a file yourself.
+          </p>
+        )}
       </div>
 
-      {error && (
-        <div className="launcher-error" role="alert">
-          {error}
-        </div>
-      )}
-
-      {loading && libraries.length === 0 && <p className="launcher-hint">Loading libraries…</p>}
-
-      {!loading && libraries.length === 0 && (
-        <p className="launcher-hint">
-          No libraries yet. Choose a folder of images to get started — nothing is copied,
-          and Envision never writes inside it unless you move a file yourself.
-        </p>
-      )}
-
-      <div className="launcher-cards">
+      <section className="launcher-cards" data-count={libraries.length} aria-label="Libraries">
         {libraries.map((library) => {
           const summary = summaries[library.id];
+          const displayPath = displayLibraryPath(library.root_path);
           return (
             <article
               key={library.id}
@@ -167,8 +172,8 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
                 <span className="launcher-card-name">{library.name}</span>
                 <span className="launcher-card-counts">{describeCounts(summary)}</span>
               </header>
-              <span className="launcher-card-path" title={library.root_path}>
-                {library.root_path}
+              <span className="launcher-card-path" title={displayPath}>
+                {displayPath}
               </span>
               {library.missing && <span className="launcher-badge">Folder moved or removed</span>}
               <div className="launcher-card-actions">
@@ -195,7 +200,7 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
             </article>
           );
         })}
-      </div>
+      </section>
     </div>
   );
 }
