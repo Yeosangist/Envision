@@ -15,6 +15,11 @@ export interface LibraryChangedEvent {
   paths: string[];
 }
 
+export interface ThumbnailReadyEvent {
+  library_id: string;
+  asset_id: number;
+}
+
 /** Return the latest scan event and unsubscribe when the component unmounts. */
 export function useScanProgress(): ScanProgress | null {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
@@ -63,4 +68,28 @@ export function useLibraryChanged(onChanged: (event: LibraryChangedEvent) => voi
       unlisten?.();
     };
   }, [onChanged]);
+}
+
+/** Subscribe to thumbnails as the backend publishes each completed image. */
+export function useThumbnailReady(
+  onReady: (event: ThumbnailReadyEvent) => void,
+): void {
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
+
+    listen<ThumbnailReadyEvent>('thumbnails:ready', (event) => {
+      if (!cancelled) onReady(event.payload);
+    })
+      .then((dispose) => {
+        if (cancelled) dispose();
+        else unlisten = dispose;
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [onReady]);
 }

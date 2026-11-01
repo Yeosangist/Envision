@@ -12,6 +12,7 @@ import { MasonryGrid } from './MasonryGrid';
 import { FolderCard } from './FolderCard';
 import { Ancestry } from '../../components/Ancestry';
 import { CloseIcon } from '../../components/icons';
+import { useThumbnailReady } from '../../api/events';
 import { ancestryOf, useLibraryStore } from '../../state/libraryStore';
 
 export interface LibraryViewProps {
@@ -22,6 +23,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [thumbnailRevisions, setThumbnailRevisions] = useState<Record<number, number>>({});
 
   const {
     folders,
@@ -36,6 +38,17 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
   } = useLibraryStore();
 
   const ancestry = useMemo(() => ancestryOf(folders, folderId), [folders, folderId]);
+
+  const onThumbnailReady = useCallback((event: { library_id: string; asset_id: number }) => {
+    const state = useLibraryStore.getState();
+    if (state.library?.id !== event.library_id) return;
+    if (!state.assets.some((asset) => asset.id === event.asset_id)) return;
+    setThumbnailRevisions((current) => ({
+      ...current,
+      [event.asset_id]: (current[event.asset_id] ?? 0) + 1,
+    }));
+  }, []);
+  useThumbnailReady(onThumbnailReady);
 
   const sensors = useSensors(
     // A short distance threshold keeps a click from starting a drag, so opening
@@ -151,6 +164,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
               <MasonryGrid
                 assets={assets}
                 scrollRef={scrollRef}
+                thumbnailRevisions={thumbnailRevisions}
                 onOpen={onOpenAsset}
                 selectedIds={[...selected]}
                 onToggleSelect={toggleSelect}

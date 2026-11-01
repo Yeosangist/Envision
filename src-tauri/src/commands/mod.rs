@@ -187,6 +187,12 @@ pub struct ScanReport {
     pub folders: u64,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct ThumbnailReadyEvent {
+    library_id: String,
+    asset_id: i64,
+}
+
 fn emit(app: &AppHandle, progress: ScanProgress) {
     let _ = app.emit(SCAN_EVENT, progress);
 }
@@ -312,6 +318,7 @@ pub async fn scan_library(
 
         // Generate missing thumbnails in the background as a fallback to folder-prioritized work.
         let index_id = index.id.clone();
+        let event_library_id = index_id.clone();
         let index_root = index.root.clone();
         let index_thumbs = index.thumbnails_dir.clone();
         drop(index);
@@ -327,7 +334,19 @@ pub async fn scan_library(
                         conn,
                         thumbnails_dir: index_thumbs,
                     };
-                    generate_thumbnails(&bg_index, thumbnail_cpu_limit);
+                    generate_thumbnails_with_callback(
+                        &bg_index,
+                        thumbnail_cpu_limit,
+                        |asset_id| {
+                            let _ = app_clone.emit(
+                                "thumbnails:ready",
+                                ThumbnailReadyEvent {
+                                    library_id: event_library_id.clone(),
+                                    asset_id,
+                                },
+                            );
+                        },
+                    );
                 }
             }
         });
@@ -361,17 +380,28 @@ fn state_clear_scan(app: &AppHandle) {
     }
 }
 
-fn generate_thumbnails(index: &LibraryIndex, cpu_limit: i64) {
+/// Render a thumbnail for every decodable asset that does not have one yet.
+fn generate_thumbnails_with_callback(
+    index: &LibraryIndex,
+    cpu_limit: i64,
+    on_ready: impl Fn(i64) + Sync,
+) {
     generate_thumbnails_for_query(
         index,
         "SELECT id, rel_path, sha256 FROM assets WHERE decode_ok = 1 ORDER BY id",
         cpu_limit,
+        on_ready,
     );
 }
 
-pub fn generate_thumbnails_for_folder(index: &LibraryIndex, folder_id: i64, cpu_limit: i64) {
+fn generate_thumbnails_for_folder_with_callback(
+    index: &LibraryIndex,
+    folder_id: i64,
+    cpu_limit: i64,
+    on_ready: impl Fn(i64) + Sync,
+) {
     let sql = format!("SELECT id, rel_path, sha256 FROM assets WHERE decode_ok = 1 AND folder_id = {} ORDER BY position, id", folder_id);
-    generate_thumbnails_for_query(index, &sql, cpu_limit);
+    generate_thumbnails_for_query(index, &sql, cpu_limit, on_ready);
 }
 
 pub fn generate_thumbnails_for_assets(index: &LibraryIndex, asset_ids: &[i64], cpu_limit: i64) {
@@ -397,10 +427,15 @@ pub fn generate_thumbnails_for_assets(index: &LibraryIndex, asset_ids: &[i64], c
             return;
         }
     };
-    generate_thumbnails_from_rows(index, rows, cpu_limit);
+    generate_thumbnails_from_rows(index, rows, cpu_limit, |_| {});
 }
 
-fn generate_thumbnails_for_query(index: &LibraryIndex, sql: &str, cpu_limit: i64) {
+fn generate_thumbnails_for_query(
+    index: &LibraryIndex,
+    sql: &str,
+    cpu_limit: i64,
+    on_ready: impl Fn(i64) + Sync,
+) {
     let rows: Vec<(i64, String, Option<String>)> = {
         let mut stmt = match index.conn.prepare(sql) {
             Ok(stmt) => stmt,
@@ -420,7 +455,7 @@ fn generate_thumbnails_for_query(index: &LibraryIndex, sql: &str, cpu_limit: i64
             }
         }
     };
-    generate_thumbnails_from_rows(index, rows, cpu_limit);
+    generate_thumbnails_from_rows(index, rows, cpu_limit, on_ready);
 }
 
 /// Read the thumbnail CPU limit, defaulting to all available cores on failure.
@@ -435,6 +470,7 @@ fn generate_thumbnails_from_rows(
     index: &LibraryIndex,
     rows: Vec<(i64, String, Option<String>)>,
     cpu_limit: i64,
+    on_ready: impl Fn(i64) + Sync,
 ) {
     use rayon::prelude::*;
 
@@ -464,6 +500,7 @@ fn generate_thumbnails_from_rows(
             match crate::thumbnails::ensure(&thumbnails_dir, &key, &source, true) {
                 Ok(Some(_)) => {
                     made.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    on_ready(*id);
                 }
                 Ok(None) => {}
                 Err(error) => {
@@ -521,6 +558,7 @@ pub async fn generate_thumbnails_for_folder_cmd(
     let index_thumbs = state.with_index(|index| Ok(index.thumbnails_dir.clone()))?;
     let cpu_limit = configured_thumbnail_cpu_limit(&state);
     let app = state.app.clone();
+    let event_library_id = index_id.clone();
     std::thread::spawn(move || {
         if let Ok(index_path) = crate::platform::library_index_path(&app, &index_id) {
             if let Ok(conn) = crate::database::open(&index_path, crate::database::LIBRARY_MIGRATIONS) {
@@ -530,7 +568,20 @@ pub async fn generate_thumbnails_for_folder_cmd(
                     conn,
                     thumbnails_dir: index_thumbs,
                 };
-                generate_thumbnails_for_folder(&bg_index, folder_id, cpu_limit);
+                generate_thumbnails_for_folder_with_callback(
+                    &bg_index,
+                    folder_id,
+                    cpu_limit,
+                    |asset_id| {
+                        let _ = app.emit(
+                            "thumbnails:ready",
+                            ThumbnailReadyEvent {
+                                library_id: event_library_id.clone(),
+                                asset_id,
+                            },
+                        );
+                    },
+                );
             }
         }
     });
@@ -708,6 +759,7 @@ pub async fn duplicate_summary(state: State<'_, Arc<AppState>>) -> Result<Duplic
         .map_err(Into::into)
 }
 
+/// Open formats Envision does not decode with the desktop's registered handler.
 /// Reclaim unused thumbnail cache entries on explicit request.
 #[tauri::command]
 pub async fn prune_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64> {
@@ -789,7 +841,6 @@ fn read_settings(conn: &Connection) -> crate::database::Result<Settings> {
     .normalized())
 }
 
-/// Open formats Envision does not decode with the desktop's registered handler.
 #[tauri::command]
 pub async fn get_settings(state: State<'_, Arc<AppState>>) -> Result<Settings> {
     state

@@ -12,6 +12,7 @@ const OVERSCAN_PX = 600;
 
 export interface MasonryGridProps {
   assets: Asset[];
+  thumbnailRevisions: Record<number, number>;
   /** The scrollable ancestor. Shared with the folder row so one surface scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>;
   onOpen: (assetId: number) => void;
@@ -24,20 +25,27 @@ export const folderDropId = (folderId: number) => `folder:${folderId}`;
 
 interface TileProps {
   asset: Asset;
+  thumbnailRevision: number;
   selected: boolean;
   onOpen: (assetId: number) => void;
   onToggleSelect?: (assetId: number) => void;
 }
 
-function Tile({ asset, selected, onOpen, onToggleSelect }: TileProps) {
+function Tile({ asset, thumbnailRevision, selected, onOpen, onToggleSelect }: TileProps) {
   const hideDuplicates = useSettingsStore((state) => state.hide_duplicates);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: asset.id,
   });
 
   const [thumbFailed, setThumbFailed] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const ratio = asset.width && asset.height ? `${asset.width} / ${asset.height}` : '1 / 1';
   const thumb = asset.thumb_url;
+
+  useEffect(() => {
+    setThumbFailed(false);
+    setImageLoaded(false);
+  }, [thumbnailRevision, thumb]);
 
   return (
     <div
@@ -52,20 +60,23 @@ function Tile({ asset, selected, onOpen, onToggleSelect }: TileProps) {
     >
       <div className="masonry-frame" style={{ aspectRatio: ratio }}>
         {thumb && !thumbFailed ? (
-          <img
-            src={thumb}
-            alt={asset.filename}
-            className="masonry-image"
-            draggable={false}
-            loading="eager"
-            decoding="async"
-            onError={() => {
-              setThumbFailed(true);
-              import('@tauri-apps/api/core').then(({ invoke }) => {
-                void invoke('generate_thumbnails_for_assets_cmd', { assetIds: [asset.id] });
-              }).catch(() => {});
-            }}
-          />
+          <>
+            <div
+              className={`masonry-unsupported masonry-placeholder${imageLoaded ? ' is-hidden' : ''}`}
+              aria-hidden="true"
+            />
+            <img
+              key={thumbnailRevision}
+              src={thumb}
+              alt={asset.filename}
+              className={`masonry-image${imageLoaded ? ' is-loaded' : ''}`}
+              draggable={false}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setThumbFailed(true)}
+            />
+          </>
         ) : (
           <div
             className="masonry-unsupported"
@@ -114,6 +125,7 @@ function Tile({ asset, selected, onOpen, onToggleSelect }: TileProps) {
 /** Virtualized masonry grid; drag-and-drop context is supplied by the parent. */
 export function MasonryGrid({
   assets,
+  thumbnailRevisions,
   scrollRef,
   onOpen,
   selectedIds = [],
@@ -213,6 +225,7 @@ export function MasonryGrid({
           >
             <Tile
               asset={asset}
+              thumbnailRevision={thumbnailRevisions[asset.id] ?? 0}
               selected={selected.has(asset.id)}
               onOpen={onOpen}
               onToggleSelect={onToggleSelect}
