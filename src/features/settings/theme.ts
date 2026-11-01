@@ -1,4 +1,3 @@
-
 export type ThemeMode = 'system' | 'light' | 'grey' | 'oled' | 'custom';
 
 /** A theme mode with `system` resolved against the OS preference. */

@@ -606,7 +606,6 @@ the bar keeps one baseline, and labelled through `aria-label` instead. */
   cursor: grabbing;
 }
 
-
 /* Fills the viewport exactly. */
 .lightbox-zoom-host {
   position: absolute;
@@ -767,7 +766,7 @@ treatment rather than the default surface colour. */
 /* ----- launcher -- */
 .launcher {
   flex: 0 0 auto;
-  width: min(100%, 1120px);
+  width: min(100%, 700px);
   margin: 0 auto;
   padding: 32px 24px 0;
 }
@@ -1082,6 +1081,14 @@ treatment rather than the default surface colour. */
 
 .new-folder-modal {
   width: min(420px, calc(100vw - 32px));
+}
+
+.forget-library-body p {
+  margin: 0;
+}
+
+.forget-library-body p + p {
+  color: var(--text-muted);
 }
 
 .new-folder-body {

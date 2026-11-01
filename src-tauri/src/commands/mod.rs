@@ -1079,8 +1079,6 @@ pub async fn prune_all_thumbnails(state: State<'_, Arc<AppState>>) -> Result<i64
     }
     Ok(removed_total)
 }
-
-
 /// Check whether `gallery-dl` is available on this machine.
 #[tauri::command]
 pub async fn check_gallery_dl() -> Result<bool> {

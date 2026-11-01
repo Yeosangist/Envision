@@ -26,6 +26,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
   const [thumbnailRevisions, setThumbnailRevisions] = useState<Record<number, number>>({});
 
   const {
+    library,
     folders,
     childFolders,
     folderId,
@@ -135,18 +136,6 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
             {childFolders.length === 0 && assets.length === 0 && !loading && (
               <div className="library-empty">
                 <p>No sub-folders yet.</p>
-                <button
-                  type="button"
-                  className="folder-card folder-card-new"
-                  onClick={() => setNewFolderOpen(true)}
-                >
-                  <span className="folder-card-plate folder-card-plate-new" aria-hidden="true">
-                    ＋
-                  </span>
-                  <span className="folder-card-label">
-                    <span className="folder-card-name">New folder</span>
-                  </span>
-                </button>
               </div>
             )}
 
@@ -163,6 +152,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
             <SortableContext items={ids}>
               <MasonryGrid
                 assets={assets}
+                libraryId={library?.id ?? ''}
                 scrollRef={scrollRef}
                 thumbnailRevisions={thumbnailRevisions}
                 onOpen={onOpenAsset}

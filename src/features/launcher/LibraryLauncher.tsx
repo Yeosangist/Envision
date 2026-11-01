@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { open, confirm } from '@tauri-apps/plugin-dialog';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 import {
   addLibrary,
   forgetLibrary,
@@ -8,7 +8,7 @@ import {
   relinkLibrary,
 } from '../../api/invoke';
 import { CommandError, type Library, type LibrarySummary } from '../../types';
-import { CogIcon } from '../../components/icons';
+import { CloseIcon, CogIcon } from '../../components/icons';
 
 export interface LibraryLauncherProps {
   onOpen: (libraryId: string) => void;
@@ -35,6 +35,7 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [forgetTarget, setForgetTarget] = useState<Library | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -59,6 +60,14 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const alphabetizedLibraries = useMemo(
+    () =>
+      [...libraries].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
+      ),
+    [libraries],
+  );
 
   const handleAdd = async () => {
     try {
@@ -92,19 +101,13 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
     }
   };
 
-  const handleForget = async (library: Library) => {
-    const confirmed = await confirm(
-      `Forget “${library.name}”?\n\nThis removes Envision's index and cached thumbnails for it. Your folder and images are left exactly as they are.`,
-      {
-        title: 'Forget library',
-        kind: 'warning',
-      },
-    );
-    if (!confirmed) return;
-
+  const handleForget = async () => {
+    if (!forgetTarget) return;
+    const library = forgetTarget;
     try {
       setBusy(library.id);
       await forgetLibrary(library.id);
+      setForgetTarget(null);
       await refresh();
     } catch (failure) {
       setError(CommandError.from(failure).message);
@@ -159,8 +162,8 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
         )}
       </div>
 
-      <section className="launcher-cards" data-count={libraries.length} aria-label="Libraries">
-        {libraries.map((library) => {
+      <section className="launcher-cards" data-count={alphabetizedLibraries.length} aria-label="Libraries">
+        {alphabetizedLibraries.map((library) => {
           const summary = summaries[library.id];
           const displayPath = displayLibraryPath(library.root_path);
           return (
@@ -182,7 +185,7 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
                     <button type="button" onClick={() => handleRelink(library)} disabled={busy === library.id}>
                       Relink…
                     </button>
-                    <button type="button" className="danger" onClick={() => handleForget(library)} disabled={busy === library.id}>
+                    <button type="button" className="danger" onClick={() => setForgetTarget(library)} disabled={busy === library.id}>
                       Forget
                     </button>
                   </>
@@ -191,7 +194,7 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
                     <button type="button" className="primary" onClick={() => onOpen(library.id)} disabled={busy === library.id}>
                       Open
                     </button>
-                    <button type="button" className="danger" onClick={() => handleForget(library)} disabled={busy === library.id}>
+                    <button type="button" className="danger" onClick={() => setForgetTarget(library)} disabled={busy === library.id}>
                       Forget
                     </button>
                   </>
@@ -201,6 +204,77 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
           );
         })}
       </section>
+      {forgetTarget && (
+        <ForgetLibraryDialog
+          library={forgetTarget}
+          busy={busy === forgetTarget.id}
+          onCancel={() => setForgetTarget(null)}
+          onConfirm={() => void handleForget()}
+        />
+      )}
     </div>
+  );
+}
+
+interface ForgetLibraryDialogProps {
+  library: Library;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function ForgetLibraryDialog({ library, busy, onCancel, onConfirm }: ForgetLibraryDialogProps) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onCancel();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [busy, onCancel]);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="modal-scrim"
+        aria-label="Cancel forgetting library"
+        onClick={() => !busy && onCancel()}
+      />
+      <section
+        className="modal new-folder-modal forget-library-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="forget-library-title"
+      >
+        <header className="modal-heading">
+          <h2 id="forget-library-title">Forget library</h2>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onCancel}
+            disabled={busy}
+            aria-label="Cancel"
+            title="Cancel"
+          >
+            <CloseIcon />
+          </button>
+        </header>
+        <div className="modal-body forget-library-body">
+          <p>Forget “{library.name}”?</p>
+          <p>
+            This removes Envision&apos;s index and cached thumbnails for it. Your folder and images
+            are left exactly as they are.
+          </p>
+        </div>
+        <footer className="new-folder-actions">
+          <button type="button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" className="danger" onClick={onConfirm} disabled={busy}>
+            Forget
+          </button>
+        </footer>
+      </section>
+    </>
   );
 }

@@ -12,6 +12,7 @@ const OVERSCAN_PX = 600;
 
 export interface MasonryGridProps {
   assets: Asset[];
+  libraryId: string;
   thumbnailRevisions: Record<number, number>;
   /** The scrollable ancestor. Shared with the folder row so one surface scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>;
@@ -25,27 +26,45 @@ export const folderDropId = (folderId: number) => `folder:${folderId}`;
 
 interface TileProps {
   asset: Asset;
+  libraryId: string;
   thumbnailRevision: number;
   selected: boolean;
   onOpen: (assetId: number) => void;
   onToggleSelect?: (assetId: number) => void;
 }
 
-function Tile({ asset, thumbnailRevision, selected, onOpen, onToggleSelect }: TileProps) {
+function Tile({ asset, libraryId, thumbnailRevision, selected, onOpen, onToggleSelect }: TileProps) {
   const hideDuplicates = useSettingsStore((state) => state.hide_duplicates);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: asset.id,
   });
 
-  const [thumbFailed, setThumbFailed] = useState(false);
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [shown, setShown] = useState<{
+    key: string;
+    src: string;
+    libraryId: string;
+    relPath: string;
+  } | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
   const ratio = asset.width && asset.height ? `${asset.width} / ${asset.height}` : '1 / 1';
   const thumb = asset.thumb_url;
-
-  useEffect(() => {
-    setThumbFailed(false);
-    setImageLoaded(false);
-  }, [thumbnailRevision, thumb]);
+  const target = thumb
+    ? {
+        key: JSON.stringify([libraryId, asset.rel_path, thumb, thumbnailRevision]),
+        src: thumb,
+        libraryId,
+        relPath: asset.rel_path,
+      }
+    : null;
+  const currentShown = thumb && shown?.libraryId === libraryId && shown.relPath === asset.rel_path
+    ? shown
+    : null;
+  const candidate =
+    target && target.key !== currentShown?.key && target.key !== failedKey ? target : null;
+  const imageLayers = [
+    ...(currentShown ? [{ image: currentShown, isShown: true }] : []),
+    ...(candidate ? [{ image: candidate, isShown: false }] : []),
+  ];
 
   return (
     <div
@@ -59,38 +78,34 @@ function Tile({ asset, thumbnailRevision, selected, onOpen, onToggleSelect }: Ti
       }}
     >
       <div className="masonry-frame" style={{ aspectRatio: ratio }}>
-        {thumb && !thumbFailed ? (
-          <>
-            <div
-              className={`masonry-unsupported masonry-placeholder${imageLoaded ? ' is-hidden' : ''}`}
-              aria-hidden="true"
-            />
-            <img
-              key={thumbnailRevision}
-              src={thumb}
-              alt={asset.filename}
-              className={`masonry-image${imageLoaded ? ' is-loaded' : ''}`}
-              draggable={false}
-              loading="lazy"
-              decoding="async"
-              onLoad={() => setImageLoaded(true)}
-              onError={() => setThumbFailed(true)}
-            />
-          </>
-        ) : (
+        {!currentShown && (
           <div
             className="masonry-unsupported"
             title={
-              thumbFailed
-                ? 'Thumbnail unavailable'
+              target
+                ? 'Thumbnail loading'
                 : `${asset.ext.toUpperCase()} is not decoded by Envision and opens externally`
             }
           >
             <span className="masonry-unsupported-ext">
-              {thumbFailed ? '·' : asset.ext.toUpperCase()}
+              {target ? (failedKey === target.key ? '·' : '') : asset.ext.toUpperCase()}
             </span>
           </div>
         )}
+        {imageLayers.map(({ image, isShown }) => (
+          <img
+            key={image.key}
+            src={image.src}
+            alt={isShown ? asset.filename : ''}
+            aria-hidden={!isShown}
+            className={`masonry-image${isShown ? ' is-loaded' : ''}`}
+            draggable={false}
+            loading="lazy"
+            decoding="async"
+            onLoad={isShown ? undefined : () => setShown(image)}
+            onError={isShown ? undefined : () => setFailedKey(image.key)}
+          />
+        ))}
       </div>
 
       {!hideDuplicates && asset.duplicate_count > 0 && (
@@ -125,6 +140,7 @@ function Tile({ asset, thumbnailRevision, selected, onOpen, onToggleSelect }: Ti
 /** Virtualized masonry grid; drag-and-drop context is supplied by the parent. */
 export function MasonryGrid({
   assets,
+  libraryId,
   thumbnailRevisions,
   scrollRef,
   onOpen,
@@ -225,6 +241,7 @@ export function MasonryGrid({
           >
             <Tile
               asset={asset}
+              libraryId={libraryId}
               thumbnailRevision={thumbnailRevisions[asset.id] ?? 0}
               selected={selected.has(asset.id)}
               onOpen={onOpen}
