@@ -188,6 +188,24 @@ pub async fn relink_library(
     Ok(library)
 }
 
+/// Rename a library's display name without changing the folder on disk.
+#[tauri::command]
+pub async fn rename_library(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    library_id: String,
+    name: String,
+) -> Result<Library> {
+    let was_open = state.open_library_id().as_deref() == Some(library_id.as_str());
+    let library = state
+        .with_app_db(|conn| library::rename_library(conn, &library_id, &name))?;
+
+    if was_open {
+        state.open_library(&library_id)?;
+    }
+    Ok(library)
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanReport {
@@ -757,6 +775,17 @@ pub async fn rename_folder(
             library::rename_folder(index, folder_id, &name)?;
             library::folder_by_id(index, folder_id)
         })
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn rename_folder_display(
+    state: State<'_, Arc<AppState>>,
+    folder_id: i64,
+    name: String,
+) -> Result<Folder> {
+    state
+        .with_index(|index| library::rename_folder_display(index, folder_id, &name))
         .map_err(Into::into)
 }
 

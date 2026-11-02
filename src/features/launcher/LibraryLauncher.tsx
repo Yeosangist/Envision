@@ -6,6 +6,7 @@ import {
   librarySummaries,
   listLibraries,
   relinkLibrary,
+  renameLibrary,
 } from '../../api/invoke';
 import { CommandError, type Library, type LibrarySummary } from '../../types';
 import { CloseIcon, CogIcon } from '../../components/icons';
@@ -40,6 +41,7 @@ export function LibraryLauncher({ onOpen, onOpenSettings, importActive, onImport
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [forgetTarget, setForgetTarget] = useState<Library | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Library | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -149,6 +151,9 @@ export function LibraryLauncher({ onOpen, onOpenSettings, importActive, onImport
           <button type="button" onClick={() => setShowImportModal(true)} disabled={busy !== null || importActive}>
             Import board
           </button>
+          <button type="button" onClick={() => void refresh()} disabled={loading || busy !== null}>
+            Refresh
+          </button>
         </div>
 
         {error && (
@@ -179,6 +184,18 @@ export function LibraryLauncher({ onOpen, onOpenSettings, importActive, onImport
               <header className="launcher-card-header">
                 <span className="launcher-card-name">{library.name}</span>
                 <span className="launcher-card-counts">{describeCounts(summary)}</span>
+                <button
+                  type="button"
+                  className="launcher-card-rename"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setRenameTarget(library);
+                  }}
+                  aria-label={`Rename ${library.name}`}
+                  title="Rename in Envision"
+                >
+                  ✎
+                </button>
               </header>
               <span className="launcher-card-path" title={displayPath}>
                 {displayPath}
@@ -215,6 +232,24 @@ export function LibraryLauncher({ onOpen, onOpenSettings, importActive, onImport
           busy={busy === forgetTarget.id}
           onCancel={() => setForgetTarget(null)}
           onConfirm={() => void handleForget()}
+        />
+      )}
+      {renameTarget && (
+        <RenameLibraryDialog
+          library={renameTarget}
+          onCancel={() => setRenameTarget(null)}
+          onConfirm={async (name) => {
+            setBusy(renameTarget.id);
+            try {
+              await renameLibrary(renameTarget.id, name);
+              await refresh();
+              setRenameTarget(null);
+            } catch (failure) {
+              setError(CommandError.from(failure).message);
+            } finally {
+              setBusy(null);
+            }
+          }}
         />
       )}
       <ImportBoardModal
@@ -270,7 +305,7 @@ function ForgetLibraryDialog({ library, busy, onCancel, onConfirm }: ForgetLibra
           </button>
         </header>
         <div className="modal-body forget-library-body">
-          <p>Forget “{library.name}”?</p>
+          <p>Forget "{library.name}"?</p>
           <p>
             This removes Envision&apos;s index and cached thumbnails for it. Your folder and images
             are left exactly as they are.
@@ -285,6 +320,84 @@ function ForgetLibraryDialog({ library, busy, onCancel, onConfirm }: ForgetLibra
           </button>
         </footer>
       </section>
+    </>
+  );
+}
+
+interface RenameLibraryDialogProps {
+  library: Library;
+  onCancel: () => void;
+  onConfirm: (name: string) => Promise<void>;
+}
+
+function RenameLibraryDialog({ library, onCancel, onConfirm }: RenameLibraryDialogProps) {
+  const [name, setName] = useState(library.name);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) onCancel();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [saving, onCancel]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    try {
+      await onConfirm(trimmed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="modal-scrim"
+        aria-label="Cancel rename"
+        onClick={() => !saving && onCancel()}
+      />
+      <form className="modal new-folder-modal" role="dialog" aria-modal="true" aria-labelledby="rename-library-title" onSubmit={(event) => void handleSubmit(event)}>
+        <header className="modal-heading">
+          <h2 id="rename-library-title">Rename library</h2>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onCancel}
+            disabled={saving}
+            aria-label="Cancel"
+            title="Cancel"
+          >
+            <CloseIcon />
+          </button>
+        </header>
+        <div className="modal-body new-folder-body">
+          <label htmlFor="rename-library-name">Library name</label>
+          <input
+            id="rename-library-name"
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={255}
+            placeholder="Enter a library name"
+            disabled={saving}
+          />
+          <p className="settings-hint">Renamed only inside Envision; the folder on disk is not moved.</p>
+        </div>
+        <footer className="new-folder-actions">
+          <button type="button" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+          <button type="submit" className="primary" disabled={!name.trim() || saving}>
+            {saving ? 'Saving…' : 'Rename'}
+          </button>
+        </footer>
+      </form>
     </>
   );
 }

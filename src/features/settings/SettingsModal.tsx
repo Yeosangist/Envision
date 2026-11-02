@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import { CommandError, type Stats } from '../../types';
 import { checkGalleryDl, libraryStats, pruneAllThumbnails } from '../../api/invoke';
+import {
+  getBundleType,
+  getIdentifier,
+  getName,
+  getTauriVersion,
+  getVersion,
+} from '@tauri-apps/api/app';
 import { CloseIcon } from '../../components/icons';
 import { useLibraryStore } from '../../state/libraryStore';
 import { useSettingsStore, type ThemeMode } from '../../state/settingsStore';
@@ -23,12 +30,13 @@ const THEME_LABELS: Record<ThemeMode, { label: string; hint: string }> = {
   },
 };
 
-type Tab = 'appearance' | 'import' | 'stats';
+type Tab = 'appearance' | 'import' | 'stats' | 'info';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'import', label: 'Import' },
   { id: 'stats', label: 'Stats' },
+  { id: 'info', label: 'Info' },
 ];
 
 export interface SettingsModalProps {
@@ -91,9 +99,11 @@ export function SettingsModal({ onClose, readyMs }: SettingsModalProps) {
             <AppearanceTab />
           ) : tab === 'import' ? (
             <ImportTab />
-          ) : (
+          ) : tab === 'stats' ? (
             <StatsTab readyMs={readyMs} />
-          )}
+          ) : tab === 'info' ? (
+            <InfoTab />
+          ) : null}
         </div>
       </div>
     </>
@@ -432,9 +442,19 @@ function ImportTab() {
             onChange={(event) => void set({ importBrowserProfile: event.target.value })}
           >
             <option value="">None (public boards only)</option>
-            <option value="firefox">Firefox</option>
+            <option value="brave">Brave</option>
             <option value="chrome">Chrome</option>
             <option value="chromium">Chromium</option>
+            <option value="edge">Edge</option>
+            <option value="firefox">Firefox</option>
+            <option value="floorp">Floorp</option>
+            <option value="librewolf">LibreWolf</option>
+            <option value="opera">Opera</option>
+            <option value="orion">Orion</option>
+            <option value="safari">Safari</option>
+            <option value="thorium">Thorium</option>
+            <option value="vivaldi">Vivaldi</option>
+            <option value="zen">Zen</option>
           </select>
         </div>
         <p className="settings-hint">
@@ -605,6 +625,353 @@ function StatsTab({ readyMs }: { readyMs: number }) {
           read, so the totals above are incomplete.
         </p>
       )}
+    </div>
+  );
+}
+
+const FAQ: { title: string; items: { q: string; a: string }[] }[] = [
+  {
+    title: 'Libraries & identity',
+    items: [
+      {
+        q: "What does “forgetting” a library do?",
+        a: "Removes Envision's index, thumbnails, and ordering for it. Your images are untouched. Re-adding the same folder reuses the existing index.",
+      },
+      {
+        q: "I moved a library folder. Did I lose everything?",
+        a: "No. The library is kept and flagged; use Relink to point it at the new location without losing order or fingerprints.",
+      },
+      {
+        q: "Why does re-adding a folder sometimes feel instant?",
+        a: "The library id is derived from the folder's canonical path, so a re-added folder reuses its existing index instead of starting over."
+      },
+      {
+        q: "What happens if I rename a root folder outside of Envision?",
+        a: "The library is flagged as broken. Use Relink to point it at the new location without losing order or fingerprints."
+      },
+      {
+        q: "How do I rename a sub-folder?",
+        a: "Use the 'Rename' button in the folder card. This updates the display name in Envision without changing the folder on disk."
+      },
+      {
+        q: "Why can't I rename a root folder inside Envision?",
+        a: "Because images and sub-folders stored under root are all tied to it."
+      }
+    ],
+  },
+  {
+    title: 'Files & safety',
+    items: [
+      {
+        q: "Does Envision ever write inside my image folders?",
+        a: "Only when you explicitly move an image between folders or create/rename a folder. Scanning, hashing, thumbnails, and ordering live in app data.",
+      },
+      {
+        q: "Does reordering the grid move files?",
+        a: "No. Order is stored in the index; your filenames and directories are untouched.",
+      },
+      {
+        q: "Does duplicate detection delete or move anything?",
+        a: "No. It only groups byte-identical files and badges them.",
+      },
+      {
+        q: "Why is folder deletion missing?",
+        a: "It is deliberately not implemented. Deleting user data irreversibly needs a recycle-bin story first.",
+      },
+      {
+        q: "What if I move or rename a folder outside Envision?",
+        a: "Envision notices via filesystem watching and prompts you to rescan; it will not silently rewrite things behind your back.",
+      },
+      {
+        q: "A file changed on disk. Does Envision rescan automatically?",
+        a: "It detects changes and offers a rescan; reconciliation is explicit so bursts of events do not race.",
+      },
+      {
+        q: "What if a filename differs only by case (IMG vs img)?",
+        a: "On macOS/Windows those are the same file; on Linux they are distinct. Envision follows your OS's filesystem rules.",
+      },
+    ],
+  },
+  {
+    title: 'Formats & viewing',
+    items: [
+      {
+        q: "Why are some images placeholders?",
+        a: "HEIC, AVIF, JPEG XL, SVG, and camera raw are indexed and counted but not decoded by Envision; opening them uses your desktop's associated app.",
+      },
+      {
+        q: "Why might a wide panorama look cropped in the grid?",
+        a: "Very extreme aspect ratios are clamped so tiles stay readable; the full image in the viewer is unaffected.",
+      },
+      {
+        q: "Why does the grid sometimes change shape on resize?",
+        a: "Columns are recomputed from available width; your stored order is unchanged.",
+      },
+    ],
+  },
+  {
+    title: 'Scanning & performance',
+    items: [
+      {
+        q: "Why is the first scan slow?",
+        a: "Phase 1 lists files quickly so the grid can render; phase 2 fingerprints (SHA-256) in the background. Large libraries take time, especially hashing.",
+      },
+      {
+        q: "Can I keep using Envision while it scans?",
+        a: "Yes - scanning and thumbnail generation run off the UI thread; the grid stays interactive.",
+      },
+      {
+        q: "What decides when a file is re-read?",
+        a: "Its size and modification time. Identity is always the full SHA-256 of bytes actually read, never the filename or dimensions.",
+      },
+      {
+        q: "What does the thumbnail CPU limit do?",
+        a: "Caps threads used for thumbnail generation across batches; scanning and hashing have their own pool. Applies to work started after the change.",
+      },
+      {
+        q: "Why are thumbnails sometimes missing then appear?",
+        a: "They are generated during the scan; a tile without one yet falls back to a placeholder instead of a broken image.",
+      },
+    ],
+  },
+  {
+    title: 'Duplicates',
+    items: [
+      {
+        q: "What counts as a duplicate?",
+        a: "Files whose complete bytes hash to the same SHA-256 = identical content regardless of name or location.",
+      },
+      {
+        q: "Why doesn't Envision just delete duplicates?",
+        a: "Two copies in two folders are two copies you chose to keep; resolving them is your call in your file manager.",
+      },
+      {
+        q: "Do duplicates share thumbnails?",
+        a: "Yes. The thumbnail cache is keyed by content hash, so identical files reuse one decode.",
+      },
+    ],
+  },
+  {
+    title: 'Moves & collisions',
+    items: [
+      {
+        q: "What if I drop an image onto a folder that already has an image with the same file name?",
+        a: "Envision renames it to “name (2).ext” and reports that it happened.",
+      },
+      {
+        q: "What if a move crosses drives?",
+        a: "It copies to a temp name in the destination, flushes, renames into place, then removes the source; so an interrupted move leaves the original intact.",
+      },
+      {
+        q: "Does renaming a folder update its contents?",
+        a: "Yes. The directory is renamed and every descendant path in the index is rewritten to match.",
+      },
+    ],
+  },
+  {
+    title: 'Storage & privacy',
+    items: [
+      {
+        q: "Where does Envision store its data?",
+        a: "In your OS app-data directory: settings.db, plus libraries/<id>/index.db and thumbnails. Nothing goes into your image folders.",
+      },
+      {
+        q: "Does Envision upload anything?",
+        a: "No. It is local-first; gallery-dl is the only network path and only runs when you explicitly import.",
+      },
+      {
+        q: "Are settings tied to a library?",
+        a: "No. Theme, import defaults, and CPU limit are per-machine in settings.db.",
+      },
+      {
+        q: "How do I back up or reset Envision's state?",
+        a: "Back up or delete the app-data directory. Deleting index.db costs a rescan and nothing else.",
+      },
+      {
+        q: "What does “Prune thumbnail cache” do?",
+        a: "Removes thumbnails for superseded cache versions and files that are gone.",
+      },
+    ],
+  },
+  {
+    title: 'Import (gallery-dl)',
+    items: [
+      {
+        q: "gallery-dl isn't found.",
+        a: "Install it separately and ensure it is on PATH; the Import tab shows the check.",
+      },
+      {
+        q: "Browser cookies locked.",
+        a: "Close the browser before importing from a private board.",
+      },
+      {
+        q: "Where do imports go?",
+        a: "Into a folder you choose (or a configured default); sections become subfolders. Afterwards you can add that folder as a library or rescan one that contains it.",
+      },
+    ],
+  },
+  {
+    title: 'Troubleshooting',
+    items: [
+      {
+        q: "What should I include in a bug report?",
+        a: "Version, OS, and the app-data path; for image-loading issues, whether it is a release or a tauri dev build (dev uses a different thumbnail path).",
+      },
+      {
+        q: "Why are some libraries reported unreadable in Stats?",
+        a: "Their index.db could not be read; totals above are incomplete until they are relinked or re-added.",
+      },
+    ],
+  },
+];
+
+function InfoTab() {
+  const [diag, setDiag] = useState<{ text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [diagError, setDiagError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [nameRes, versionRes, tauriRes, bundleRes, idRes] =
+          await Promise.allSettled([
+            getName(),
+            getVersion(),
+            getTauriVersion(),
+            getBundleType(),
+            getIdentifier(),
+          ]);
+        const name = nameRes.status === 'fulfilled' ? nameRes.value : '—';
+        const version =
+          versionRes.status === 'fulfilled' ? versionRes.value : (import.meta.env.PACKAGE_VERSION ?? '—');
+        const tauriVersion =
+          tauriRes.status === 'fulfilled' ? tauriRes.value : '—';
+        const bundleType =
+          bundleRes.status === 'fulfilled' ? String(bundleRes.value) : '—';
+        const identifier =
+          idRes.status === 'fulfilled' ? idRes.value : '—';
+
+        const galleryDl = await checkGalleryDl().catch(() => false);
+
+        let cacheLocation = '—';
+        try {
+          cacheLocation = (await libraryStats()).cache_location || '—';
+        } catch {
+          // Keep diagnostics useful even if stats cannot be read.
+        }
+
+        if (cancelled) return;
+
+        const lines = [
+          'Envision diagnostics',
+          `App: ${name}`,
+          `Version: ${version}`,
+          `Build version (package.json): ${import.meta.env.PACKAGE_VERSION ?? '—'}`,
+          `Tauri: ${tauriVersion}`,
+          `Bundle: ${bundleType}`,
+          `Identifier: ${identifier}`,
+          `Platform: ${navigator.platform || '—'}`,
+          `User agent: ${navigator.userAgent}`,
+          `Screen: ${window.screen?.width ?? '?'}x${window.screen?.height ?? '?'} @${window.devicePixelRatio ?? 1}x`,
+          `gallery-dl: ${galleryDl ? 'found' : 'missing'}`,
+          `App data (libraries): ${cacheLocation}`,
+        ];
+        setDiag({ text: lines.join('\n') });
+      } catch (error) {
+        if (!cancelled) {
+          setDiagError('Could not gather diagnostics.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (!diag) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(diag.text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = diag.text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setDiagError('Could not copy to clipboard.');
+    }
+  };
+
+  return (
+    <div className="settings-pane">
+      <section className="settings-group settings-about">
+        <h3>About</h3>
+        <div className="settings-group-heading">
+          <span className="settings-field-label">Version</span>
+          <span className="settings-field-label">Diagnostics</span>
+        </div>
+        <div className="settings-group-heading">
+          <span className="settings-about-value">{import.meta.env.PACKAGE_VERSION ?? '—'}</span>
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            disabled={!diag}
+            title="Copy version, runtime, and environment details to the clipboard"
+          >
+            {copied ? 'Copied!' : diag ? 'Copy diagnostics' : 'Gathering…'}
+          </button>
+        </div>
+
+        {diagError && (
+          <p className="settings-error" role="alert">
+            {diagError}
+          </p>
+        )}
+
+        <h3>FAQ</h3>
+        <div className="settings-faq">
+          {FAQ.map(({ title, items }) => (
+            <details key={title} className="settings-faq-category">
+              <summary className="settings-faq-summary">{title}</summary>
+              <dl className="settings-faq-list">
+                {items.map(({ q, a }) => (
+                  <div key={q} className="settings-faq-item">
+                    <dt className="settings-faq-question">{q}</dt>
+                    <dd className="settings-faq-answer">{a}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          ))}
+        </div>
+
+        <div className="settings-about-links">
+          <a
+            href="https://github.com/Yeosangist"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Developer: Yeosangist
+          </a>
+          <p>LICENSE: GPL V3</p>
+          <a
+            href="https://github.com/Yeosangist/Envision"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Source on GitHub
+          </a>
+        </div>
+      </section>
     </div>
   );
 }

@@ -322,44 +322,27 @@ pub struct ImportValidation {
 }
 
 /// Browser profile for cookie-based authentication with private boards.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum BrowserProfile {
-    /// No cookies; public boards only.
-    #[serde(rename = "none")]
-    NoCookies,
-    /// Firefox profile path.
-    Firefox(String),
-    /// Chrome/Chromium profile path.
-    Chrome(String),
-    /// Chromium-based profile path.
-    Chromium(String),
-}
-
-impl Default for BrowserProfile {
-    fn default() -> Self {
-        BrowserProfile::NoCookies
-    }
-}
+///
+/// Stored as the browser name understood by gallery-dl's
+/// `--cookies-from-browser` option, optionally followed by `:profile` to select
+/// a named profile. An empty value means "no cookies".
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BrowserProfile(pub String);
 
 impl BrowserProfile {
     /// Parse a browser profile string from settings.
     pub fn from_string(value: Option<String>) -> Self {
-        match value.as_deref() {
-            None | Some("") => BrowserProfile::NoCookies,
-            Some(s) => {
-                let parts: Vec<&str> = s.splitn(2, ':').collect();
-                match parts.as_slice() {
-                    ["firefox"] => BrowserProfile::Firefox(String::new()),
-                    ["firefox", path] => BrowserProfile::Firefox(path.to_string()),
-                    ["chrome"] => BrowserProfile::Chrome(String::new()),
-                    ["chrome", path] => BrowserProfile::Chrome(path.to_string()),
-                    ["chromium"] => BrowserProfile::Chromium(String::new()),
-                    ["chromium", path] => BrowserProfile::Chromium(path.to_string()),
-                    _ => BrowserProfile::NoCookies,
-                }
-            }
+        match value {
+            None => BrowserProfile(String::new()),
+            Some(s) if s.trim().is_empty() => BrowserProfile(String::new()),
+            Some(s) => BrowserProfile(s),
         }
+    }
+
+    /// Whether any browser was selected.
+    pub fn is_none(&self) -> bool {
+        self.0.trim().is_empty()
     }
 }
 
@@ -523,6 +506,6 @@ mod tests {
 
         assert_eq!(a, b);
         assert_ne!(a, c);
-        assert_eq!(a.len(), 16);
+        assert_eq!(a.len(), 64);
     }
 }

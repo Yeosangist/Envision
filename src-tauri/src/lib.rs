@@ -45,6 +45,7 @@ pub fn run() {
             commands::close_library,
             commands::forget_library,
             commands::relink_library,
+            commands::rename_library,
             // scanning
             commands::scan_library,
             commands::cancel_scan,
@@ -58,6 +59,7 @@ pub fn run() {
             commands::move_assets,
             commands::create_folder,
             commands::rename_folder,
+            commands::rename_folder_display,
             commands::read_asset_bytes,
             commands::open_asset_externally,
             // duplicates

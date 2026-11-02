@@ -227,6 +227,21 @@ pub fn forget_library(app: &AppHandle, conn: &Connection, id: &str) -> Result<()
     Ok(())
 }
 
+/// Rename a library's display name without changing the folder on disk.
+pub fn rename_library(conn: &Connection, id: &str, name: &str) -> Result<Library> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(LibraryError::Invalid("a library needs a name".into()));
+    }
+
+    conn.execute(
+        "UPDATE libraries SET name = ?1 WHERE id = ?2",
+        rusqlite::params![name, id],
+    )?;
+
+    load_library(conn, id)?.ok_or_else(|| LibraryError::NotFound(id.to_string()))
+}
+
 
 /// Keep cover identity for backend cache-key construction without serializing it to the UI.
 struct FolderRow {
@@ -516,7 +531,7 @@ fn poisoned<T>(_: T) -> LibraryError {
 }
 
 // Re-exported so command handlers can stay thin.
-pub use moves::{create_folder, move_assets, rename_folder};
+pub use moves::{create_folder, move_assets, rename_folder, rename_folder_display};
 pub use queries::{asset_by_id, duplicate_summary, list_assets, list_duplicates, reorder_assets};
 
 #[cfg(test)]

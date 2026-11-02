@@ -74,6 +74,18 @@ pub fn validate_pinterest_url(url: &str) -> Result<String, ImportError> {
     Ok(board_id)
 }
 
+/// Normalize a Pinterest board slug/title into a human-readable board name.
+///
+/// Pinterest slugs use "-" to represent spaces (e.g. "my-board-name"). Hyphens
+/// are therefore treated as spaces; a hyphen at the start/end of the slug is a
+/// stray separator and is dropped by trimming the resulting whitespace.
+pub fn normalize_board_name(name: &str) -> String {
+    name.replace('-', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Sanitize a board title for use as a directory name.
 pub fn sanitize_folder_name(name: &str) -> String {
     let sanitized: String = name
@@ -252,13 +264,14 @@ pub fn validate_import(
         
         // Extract board name from URL or use override
         let raw_name = if let Some(name) = board_name_override {
-            name.to_string()
+            normalize_board_name(name)
         } else {
             // Try to extract from URL path
             let parsed = url::Url::parse(url).unwrap();
             let path = parsed.path();
             let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-            parts.last().unwrap_or(&"pinterest-board").to_string()
+            let slug = parts.last().copied().unwrap_or("pinterest-board");
+            normalize_board_name(slug)
         };
         
         board_name = sanitize_folder_name(&raw_name);
@@ -356,33 +369,12 @@ pub fn build_gallery_dl_args(
     ];
 
     // Add browser cookie arguments if a profile is selected
-    match browser_profile {
-        BrowserProfile::Firefox(profile) => {
-            args.push("--cookies-from-browser".to_string());
-            args.push(browser_cookie_spec("firefox", profile));
-        }
-        BrowserProfile::Chrome(profile) => {
-            args.push("--cookies-from-browser".to_string());
-            args.push(browser_cookie_spec("chrome", profile));
-        }
-        BrowserProfile::Chromium(profile) => {
-            args.push("--cookies-from-browser".to_string());
-            args.push(browser_cookie_spec("chromium", profile));
-        }
-        BrowserProfile::NoCookies => {
-        // No cookies; public boards only
-        }
+    if !browser_profile.is_none() {
+        args.push("--cookies-from-browser".to_string());
+        args.push(browser_profile.0.clone());
     }
 
     args
-}
-
-fn browser_cookie_spec(browser: &str, profile: &str) -> String {
-    if profile.is_empty() {
-        browser.to_string()
-    } else {
-        format!("{}:{}", browser, profile)
-    }
 }
 
 /// Run gallery-dl as a child process and stream progress.
@@ -554,6 +546,16 @@ mod tests {
     }
 
     #[test]
+    fn normalize_board_name_treats_hyphens_as_spaces() {
+        assert_eq!(normalize_board_name("my-board"), "my board");
+        assert_eq!(normalize_board_name("my-board-name"), "my board name");
+        assert_eq!(normalize_board_name("board-"), "board");
+        assert_eq!(normalize_board_name("-board"), "board");
+        assert_eq!(normalize_board_name("a--b"), "a b");
+        assert_eq!(normalize_board_name("-"), "");
+    }
+
+    #[test]
     fn pinterest_board_identity_ignores_www_scheme_and_trailing_slash() {
         let canonical = validate_pinterest_url("https://pinterest.com/user/board").unwrap();
         assert_eq!(canonical, "pinterest.com/user/board");
@@ -601,7 +603,7 @@ mod tests {
             "https://pinterest.com/user/board/",
             Path::new("/tmp/board"),
             Path::new("/tmp/archive.txt"),
-            &BrowserProfile::NoCookies,
+            &BrowserProfile::default(),
         );
 
         for expected in [
@@ -619,7 +621,7 @@ mod tests {
             "https://pinterest.com/user/board/",
             Path::new("/tmp/board"),
             Path::new("/tmp/archive.txt"),
-            &BrowserProfile::NoCookies,
+            &BrowserProfile::default(),
         );
 
         assert!(args.windows(2).any(|pair| pair == ["--destination", "/tmp/board"]));

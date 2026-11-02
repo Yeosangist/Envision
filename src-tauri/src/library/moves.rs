@@ -2,7 +2,7 @@
 //! Explicit filesystem changes only; paths are revalidated under the library root.
 use super::queries::{compact_positions, next_position};
 use super::{LibraryError, LibraryIndex, Result};
-use crate::domain::MoveResult;
+use crate::domain::{Folder, MoveResult};
 use crate::paths;
 use std::io::Write;
 use std::path::Path;
@@ -270,6 +270,30 @@ pub fn rename_folder(index: &LibraryIndex, folder_id: i64, name: &str) -> Result
     tx.commit()?;
 
     Ok(())
+}
+
+/// Rename a folder's display name inside Envision's index only.
+///
+/// This does not touch the filesystem, does not change `rel_path`, and does
+/// not update any asset rows, so it cannot trigger a rescan or re-fingerprinting.
+pub fn rename_folder_display(index: &LibraryIndex, folder_id: i64, name: &str) -> Result<Folder> {
+    let name = sanitize_folder_name(name)?;
+    let folder = super::folder_by_id(index, folder_id)?;
+    if folder.rel_path.is_empty() {
+        return Err(LibraryError::Invalid(
+            "the library root cannot be renamed".into(),
+        ));
+    }
+    if folder.name == name {
+        return Ok(folder);
+    }
+
+    index.conn.execute(
+        "UPDATE folders SET name = ?1 WHERE id = ?2",
+        rusqlite::params![&name, folder_id],
+    )?;
+
+    super::folder_by_id(index, folder_id)
 }
 
 /// Reject names that would produce an unusable or unsafe directory.

@@ -19,6 +19,7 @@ export function Ancestry({ ancestry, onNavigate, suffix, libraryName }: Ancestry
       <ol className="ancestry-list">
         {ancestry.map((folder, index) => {
           const isLast = index === ancestry.length - 1;
+          const isRoot = folder.rel_path === '';
           return (
             <li key={folder.id} className="ancestry-item">
               {index > 0 && (
@@ -28,7 +29,7 @@ export function Ancestry({ ancestry, onNavigate, suffix, libraryName }: Ancestry
               )}
               {isLast ? (
                 <span className="ancestry-current" title={folder.rel_path || folder.name}>
-                  {folder.rel_path === '' ? (libraryName || 'Library') : folder.name}
+                  {isRoot ? (libraryName || 'Library') : folder.name}
                 </span>
               ) : (
                 <button
@@ -37,7 +38,7 @@ export function Ancestry({ ancestry, onNavigate, suffix, libraryName }: Ancestry
                   onClick={() => onNavigate(folder.id)}
                   title={folder.rel_path || folder.name}
                 >
-                  {folder.rel_path === '' ? (libraryName || 'Library') : folder.name}
+                  {isRoot ? (libraryName || 'Library') : folder.name}
                 </button>
               )}
             </li>

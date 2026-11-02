@@ -14,6 +14,7 @@ import { Ancestry } from '../../components/Ancestry';
 import { CloseIcon } from '../../components/icons';
 import { useThumbnailReady } from '../../api/events';
 import { ancestryOf, useLibraryStore } from '../../state/libraryStore';
+import type { Folder } from '../../types';
 
 export interface LibraryViewProps {
   onOpenAsset: (assetId: number) => void;
@@ -23,6 +24,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<Folder | null>(null);
   const [thumbnailRevisions, setThumbnailRevisions] = useState<Record<number, number>>({});
 
   const {
@@ -36,6 +38,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
     setOrder,
     moveToFolder,
     addFolder,
+    renameFolderDisplay,
   } = useLibraryStore();
 
   const pendingThumbnails = assets.filter((a) => a.decode_ok && !a.thumb_url).length;
@@ -113,7 +116,7 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
             {childFolders && (
               <section className="folder-row" aria-label="Folders">
                 {childFolders.map((folder) => (
-                  <FolderCard key={folder.id} folder={folder} onOpen={navigate} />
+                  <FolderCard key={folder.id} folder={folder} onOpen={navigate} onRename={setRenameTarget} />
                 ))}
                 <button
                   type="button"
@@ -181,6 +184,16 @@ export function LibraryView({ onOpenAsset }: LibraryViewProps) {
           onCreate={async (name) => {
             await addFolder(name);
             setNewFolderOpen(false);
+          }}
+        />
+      )}
+      {renameTarget && (
+        <RenameFolderDialog
+          folder={renameTarget}
+          onClose={() => setRenameTarget(null)}
+          onRename={async (name) => {
+            await renameFolderDisplay(renameTarget.id, name);
+            setRenameTarget(null);
           }}
         />
       )}
@@ -257,6 +270,85 @@ function NewFolderDialog({ onClose, onCreate }: NewFolderDialogProps) {
           </button>
           <button type="submit" className="primary" disabled={!name.trim() || creating}>
             {creating ? 'Creating…' : 'Create folder'}
+          </button>
+        </footer>
+      </form>
+    </>
+  );
+}
+
+
+interface RenameFolderDialogProps {
+  folder: Folder;
+  onClose: () => void;
+  onRename: (name: string) => Promise<void>;
+}
+
+function RenameFolderDialog({ folder, onClose, onRename }: RenameFolderDialogProps) {
+  const [name, setName] = useState(folder.name);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [saving, onClose]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    try {
+      await onRename(trimmed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="modal-scrim"
+        aria-label="Cancel rename"
+        onClick={() => !saving && onClose()}
+      />
+      <form className="modal new-folder-modal" role="dialog" aria-modal="true" aria-labelledby="rename-folder-title" onSubmit={(event) => void handleSubmit(event)}>
+        <header className="modal-heading">
+          <h2 id="rename-folder-title">Rename folder</h2>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
+            disabled={saving}
+            aria-label="Cancel"
+            title="Cancel"
+          >
+            <CloseIcon />
+          </button>
+        </header>
+        <div className="modal-body new-folder-body">
+          <label htmlFor="rename-folder-name">Folder name</label>
+          <input
+            id="rename-folder-name"
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={255}
+            placeholder="Enter a folder name"
+            disabled={saving}
+          />
+          <p className="settings-hint">Renamed only inside Envision; files on disk are not moved.</p>
+        </div>
+        <footer className="new-folder-actions">
+          <button type="button" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button type="submit" className="primary" disabled={!name.trim() || saving}>
+            {saving ? 'Saving…' : 'Rename'}
           </button>
         </footer>
       </form>

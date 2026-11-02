@@ -44,6 +44,9 @@ export const forgetLibrary = (libraryId: string) =>
 export const relinkLibrary = (libraryId: string, path: string) =>
   call<Library>('relink_library', { libraryId, path });
 
+export const renameLibrary = (libraryId: string, name: string) =>
+  call<Library>('rename_library', { libraryId, name });
+
 
 // --- scanning --------------------------------------------------------------
 export const scanLibrary = () => call<ScanReport>('scan_library');
@@ -81,6 +84,9 @@ export const createFolder = (parentId: number, name: string) =>
 
 export const renameFolder = (folderId: number, name: string) =>
   call<Folder>('rename_folder', { folderId, name });
+
+export const renameFolderDisplay = (folderId: number, name: string) =>
+  call<Folder>('rename_folder_display', { folderId, name });
 
 /** Read original image bytes by ID without exposing a filesystem path. */
 export const readAssetBytes = (assetId: number) =>

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { CommandError, type ImportValidation } from '../../types';
 import { useSettingsStore } from '../../state/settingsStore';
+import { CloseIcon } from '../../components/icons';
 
 interface ImportBoardModalProps {
   isOpen: boolean;
@@ -29,6 +30,15 @@ export function ImportBoardModal({ isOpen, onClose, onStarted }: ImportBoardModa
     setError(null);
     setIsStarting(false);
   }, [isOpen, importAsk, importFolder]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isStarting) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, isStarting, onClose]);
 
   const handleSelectFolder = async () => {
     const selected = await open({
@@ -90,92 +100,101 @@ export function ImportBoardModal({ isOpen, onClose, onStarted }: ImportBoardModa
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 rounded-lg p-6 w-full max-w-md border border-gray-700">
-        <h2 className="text-xl font-semibold text-gray-100 mb-4">Import Pinterest Board</h2>
-
-        <div className="mb-4">
-          <label className="block text-sm text-gray-400 mb-2">Pinterest Board URL</label>
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://pinterest.com/username/boardname/"
-            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100 focus:outline-none focus:border-blue-500"
+    <>
+      <button
+        type="button"
+        className="modal-scrim"
+        aria-label="Cancel import"
+        onClick={() => !isStarting && onClose()}
+      />
+      <section
+        className="modal new-folder-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-board-title"
+      >
+        <header className="modal-heading">
+          <h2 id="import-board-title">Import Pinterest Board</h2>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={onClose}
             disabled={isStarting}
-          />
+            aria-label="Close"
+            title="Close"
+          >
+            <CloseIcon />
+          </button>
+        </header>
+
+        <div className="modal-body import-board-body">
+          <div className="import-board-field">
+            <label htmlFor="import-board-url">Pinterest Board URL</label>
+            <input
+              id="import-board-url"
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://pinterest.com/username/boardname/"
+              disabled={isStarting}
+            />
+          </div>
+
+          {needsDestinationChoice && (
+            <div className="import-board-field">
+              <label htmlFor="import-board-destination">Destination Folder</label>
+              <div className="import-board-row">
+                <input
+                  id="import-board-destination"
+                  type="text"
+                  value={parentPath}
+                  onChange={(e) => setParentPath(e.target.value)}
+                  placeholder="/path/to/folder"
+                  disabled={isStarting}
+                />
+                <button type="button" onClick={handleSelectFolder} disabled={isStarting}>
+                  Browse
+                </button>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="import-board-error" role="alert">
+              {error}
+            </div>
+          )}
+
+          {validation && (
+            <div className="import-board-validation">
+              <p>
+                <span className="import-board-key">Board:</span> {validation.boardName}
+              </p>
+              <p>
+                <span className="import-board-key">Destination:</span> {validation.boardPath}
+              </p>
+              {validation.isReimport && (
+                <p className="import-board-reimport">Re-importing to existing folder</p>
+              )}
+            </div>
+          )}
         </div>
 
-        {needsDestinationChoice && (
-          <div className="mb-4">
-            <label className="block text-sm text-gray-400 mb-2">Destination Folder</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={parentPath}
-                onChange={(e) => setParentPath(e.target.value)}
-                placeholder="/path/to/folder"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-gray-100 focus:outline-none focus:border-blue-500"
-                disabled={isStarting}
-              />
-              <button
-                onClick={handleSelectFolder}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded border border-gray-600"
-                disabled={isStarting}
-              >
-                Browse
-              </button>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-4 p-3 bg-red-900/50 border border-red-700 rounded text-red-200 text-sm">
-            {error}
-          </div>
-        )}
-
-        {validation && (
-          <div className="mb-4 p-3 bg-gray-800 border border-gray-700 rounded">
-            <p className="text-sm text-gray-300">
-              <span className="text-gray-400">Board:</span> {validation.boardName}
-            </p>
-            <p className="text-sm text-gray-300">
-              <span className="text-gray-400">Destination:</span> {validation.boardPath}
-            </p>
-            {validation.isReimport && (
-              <p className="text-sm text-yellow-400 mt-1">Re-importing to existing folder</p>
-            )}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded border border-gray-600"
-            disabled={isStarting}
-          >
+        <footer className="new-folder-actions">
+          <button type="button" onClick={onClose} disabled={isStarting}>
             Cancel
           </button>
           {!validation ? (
-            <button
-              onClick={handleValidate}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded"
-              disabled={isStarting}
-            >
+            <button type="button" className="primary" onClick={handleValidate} disabled={isStarting}>
               Validate
             </button>
           ) : (
-            <button
-              onClick={handleStartImport}
-              className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded"
-              disabled={isStarting}
-            >
+            <button type="button" className="primary" onClick={handleStartImport} disabled={isStarting}>
               {isStarting ? 'Starting…' : 'Start Import'}
             </button>
           )}
-        </div>
-      </div>
-    </div>
+        </footer>
+      </section>
+    </>
   );
 }

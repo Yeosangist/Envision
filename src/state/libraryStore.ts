@@ -9,6 +9,7 @@ import {
   moveAssets,
   openLibrary,
   reorderAssets,
+  renameFolderDisplay,
   scanLibrary,
 } from '../api/invoke';
 import { CommandError, type Asset, type DuplicateGroup, type Folder, type Library } from '../types';
@@ -54,6 +55,7 @@ interface LibraryState {
   setOrder: (orderedIds: number[]) => Promise<void>;
   moveToFolder: (assetIds: number[], folderId: number) => Promise<void>;
   addFolder: (name: string) => Promise<void>;
+  renameFolderDisplay: (folderId: number, name: string) => Promise<void>;
   dismissNotice: () => void;
   dismissError: () => void;
 }
@@ -257,6 +259,20 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       const parent = resolveFolderId(get().folderId, get().folders);
       const folder = await createFolder(parent, name);
       set({ folders: await listFolders(), notice: `Created “${folder.name}”.` });
+    } catch (error) {
+      set({ error: message(error) });
+    }
+  },
+
+  renameFolderDisplay: async (folderId, name) => {
+    try {
+      const folder = await renameFolderDisplay(folderId, name);
+      const currentFolderId = get().folderId;
+      set({
+        folders: await listFolders(),
+        childFolders: await listChildFolders(currentFolderId),
+        notice: `Renamed to “${folder.name}”.`,
+      });
     } catch (error) {
       set({ error: message(error) });
     }

@@ -7,6 +7,10 @@ import process from 'node:process';
 
 const host = process.env.TAURI_DEV_HOST;
 
+const packageVersion = JSON.parse(
+  readFileSync('package.json', 'utf8'),
+) as { version: string };
+
 const THUMB_PREFIX = '/__thumbs';
 
 function tauriConfig(): { identifier?: string } {
@@ -103,6 +107,10 @@ function devThumbnails(): Plugin {
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [devThumbnails()],
+
+  define: {
+    'import.meta.env.PACKAGE_VERSION': JSON.stringify(packageVersion.version),
+  },
 
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
