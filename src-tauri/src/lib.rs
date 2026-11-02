@@ -2,6 +2,7 @@ mod commands;
 mod database;
 mod domain;
 mod images;
+mod import;
 mod library;
 mod paths;
 mod platform;
@@ -28,6 +29,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let app_db = commands::open_app_db(&handle)?;
             app.manage(Arc::new(AppState::new(handle, app_db)));
+            app.manage(Arc::new(import::ImportTaskState::default()));
             if let (Some(icon), Some(window)) =
                 (app.default_window_icon(), app.get_webview_window("main"))
             {
@@ -71,6 +73,10 @@ pub fn run() {
             commands::generate_thumbnails_for_folder_cmd,
             commands::generate_thumbnails_for_assets_cmd,
             commands::read_theme_background,
+            // import
+            commands::validate_import_board,
+            commands::start_import_board,
+            commands::cancel_import_board,
             // statistics
             commands::library_stats,
             commands::library_summaries,

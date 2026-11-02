@@ -2,9 +2,10 @@
 //! Tauri command boundary: validate requests, call services, and return domain types.
 use crate::database::{delete_setting, read_setting, write_setting, APP_MIGRATIONS};
 use crate::domain::{
-    Asset, DuplicateGroup, Folder, Library, LibrarySummary, MoveResult, ReorderResult, ScanPhase,
-    ScanProgress, Settings, Stats,
+    Asset, BrowserProfile, DuplicateGroup, Folder, ImportValidation, Library,
+    LibrarySummary, MoveResult, ReorderResult, ScanPhase, ScanProgress, Settings, Stats,
 };
+use crate::import::{self, ImportError};
 use crate::library::scan::{ScanHandle, ScanOptions, ScanOutcome};
 use crate::library::{self, AppState, LibraryError, LibraryIndex};
 use rusqlite::Connection;
@@ -15,6 +16,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Event carrying scan progress.
 pub const SCAN_EVENT: &str = "scan:progress";
+
+/// Event carrying import progress.
+pub const IMPORT_EVENT: &str = "import:progress";
 
 /// A categorised failure safe to display in the UI.
 #[derive(Debug, Serialize, Deserialize, thiserror::Error)]
@@ -328,7 +332,6 @@ pub async fn scan_library(app: AppHandle, state: State<'_, Arc<AppState>>) -> Re
         let index_root = index.root.clone();
         let index_thumbs = index.thumbnails_dir.clone();
         drop(index);
-        // Spawn progress emitter
         let app_clone = app.clone();
         std::thread::spawn(move || {
             // Reopen index in background thread
@@ -793,7 +796,9 @@ pub async fn open_asset_externally(state: State<'_, Arc<AppState>>, asset_id: i6
     state
         .app
         .opener()
-        .open_path(path.to_string_lossy().to_string(), None::<&str>)?;
+        .open_path(path.to_string_lossy().as_ref(), None::<String>)
+        .map_err(|e| LibraryError::Invalid(format!("Failed to open asset: {}", e)))?;
+
     Ok(())
 }
 
@@ -869,6 +874,7 @@ fn read_settings(conn: &Connection) -> crate::database::Result<Settings> {
     let thumbnail_cpu_limit = read_setting(conn, "thumbnail_cpu_limit")?
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
+    let import_browser_profile = read_setting(conn, "import_browser_profile")?.unwrap_or_default();
 
     // Absent colour keys read as empty and normalisation supplies the default,
     // so the palette lives in exactly one place (`Settings::default`).
@@ -895,6 +901,7 @@ fn read_settings(conn: &Connection) -> crate::database::Result<Settings> {
         import_folder,
         import_ask,
         thumbnail_cpu_limit,
+        import_browser_profile,
         custom_text,
         custom_text_muted,
         custom_accent,
@@ -957,6 +964,7 @@ fn persist_settings(conn: &Connection, settings: &Settings) -> crate::database::
         "import_ask",
         if settings.import_ask { "true" } else { "false" },
     )?;
+    write_setting(conn, "import_browser_profile", &settings.import_browser_profile)?;
     write_setting(
         conn,
         "thumbnail_cpu_limit",
@@ -1107,6 +1115,90 @@ pub async fn library_summaries(state: State<'_, Arc<AppState>>) -> Result<Vec<Li
     Ok(summaries)
 }
 
+
+impl From<ImportError> for CommandError {
+    fn from(error: ImportError) -> Self {
+        CommandError {
+            category: "import".to_string(),
+            message: error.to_string(),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn validate_import_board(
+    url: String,
+    parent_path: String,
+    board_name_override: Option<String>,
+) -> Result<ImportValidation> {
+    let parent = PathBuf::from(&parent_path);
+    let override_name = board_name_override.as_deref();
+    import::validate_import(&url, &parent, override_name).map_err(CommandError::from)
+}
+
+#[tauri::command]
+pub async fn start_import_board(
+    app: AppHandle,
+    url: String,
+    parent_path: String,
+    browser_profile_str: String,
+) -> Result<()> {
+    let parent_path = PathBuf::from(&parent_path);
+    let validation = import::validate_import(&url, &parent_path, None)
+        .map_err(CommandError::from)?;
+    let board_path = PathBuf::from(validation.board_path);
+    let board_id = validation.board_id;
+    let browser_profile = BrowserProfile::from_string(Some(browser_profile_str));
+
+    // Get archive path
+    let archive_path = import::archive_path(&board_id, &parent_path).map_err(CommandError::from)?;
+
+    // Save board mapping if new
+    if !board_path.exists() {
+        let mapping = import::BoardMapping {
+            board_id: board_id.clone(),
+            parent_path: parent_path.to_string_lossy().to_string(),
+            board_path: board_path.to_string_lossy().to_string(),
+            board_name: board_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("board")
+                .to_string(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        };
+        import::upsert_mapping(mapping).map_err(CommandError::from)?;
+    }
+
+    // Start import in background
+    let (handle, receiver) = import::start_import(url, board_path, archive_path, browser_profile)
+        .map_err(CommandError::from)?;
+
+    // Replace the current task handle so cancellation always targets this run.
+    if let Some(task_state) = app.try_state::<Arc<import::ImportTaskState>>() {
+        task_state.set_active(handle);
+    }
+
+    // Spawn progress emitter
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        for progress in receiver {
+            let _ = app_clone.emit(IMPORT_EVENT, progress);
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_import_board(app: AppHandle) -> Result<()> {
+    if let Some(task_state) = app.try_state::<Arc<import::ImportTaskState>>() {
+        task_state.cancel();
+    }
+    Ok(())
+}
+
 /// Applied once at startup so a fresh install has sane defaults on disk.
 pub fn seed_default_settings(conn: &Connection) -> crate::database::Result<()> {
     for (key, value) in [
@@ -1242,7 +1334,7 @@ mod tests {
             (20, "second.jpg".to_string(), None),
         ];
 
-        prioritize_thumbnail_rows(&mut rows, &[10, 20, 30]);
+        prioritize_thumbnail_rows(&mut rows, &[10, 20, 30][..]);
 
         assert_eq!(
             rows.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),

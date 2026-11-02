@@ -19,20 +19,21 @@ export type { ThemeMode };
 /** Temporary defaults, replaced by normalized backend settings on load. */
 const DEFAULTS: Settings = {
   theme: 'grey',
-  interface_scale: 1,
-  gif_autoplay: true,
-  max_playing_gifs: 4,
-  folder_card_size: 160,
-  hide_duplicates: false,
-  thumbnail_cpu_limit: 0,
-  custom_text: '#ececed',
-  custom_text_muted: '#9a9aa2',
-  custom_accent: '#60a5fa',
-  custom_background: '#101012',
-  custom_background_image: null,
-  custom_background_blur: 12,
-  import_folder: null,
-  import_ask: true,
+  interfaceScale: 1,
+  gifAutoplay: true,
+  maxPlayingGifs: 4,
+  folderCardSize: 160,
+  hideDuplicates: false,
+  thumbnailCpuLimit: 0,
+  customText: '#ececed',
+  customTextMuted: '#9a9aa2',
+  customAccent: '#60a5fa',
+  customBackground: '#101012',
+  customBackgroundImage: null,
+  customBackgroundBlur: 12,
+  importFolder: null,
+  importAsk: true,
+  importBrowserProfile: '',
 };
 
 /** Per-machine desktop preferences. */
@@ -54,29 +55,30 @@ interface SettingsState extends Settings {
 function persisted(state: SettingsState): Settings {
   return {
     theme: state.theme,
-    interface_scale: state.interface_scale,
-    gif_autoplay: state.gif_autoplay,
-    max_playing_gifs: state.max_playing_gifs,
-    folder_card_size: state.folder_card_size,
-    hide_duplicates: state.hide_duplicates,
-    thumbnail_cpu_limit: state.thumbnail_cpu_limit,
-    custom_text: state.custom_text,
-    custom_text_muted: state.custom_text_muted,
-    custom_accent: state.custom_accent,
-    custom_background: state.custom_background,
-    custom_background_image: state.custom_background_image,
-    custom_background_blur: state.custom_background_blur,
-    import_folder: state.import_folder,
-    import_ask: state.import_ask,
+    interfaceScale: state.interfaceScale,
+    gifAutoplay: state.gifAutoplay,
+    maxPlayingGifs: state.maxPlayingGifs,
+    folderCardSize: state.folderCardSize,
+    hideDuplicates: state.hideDuplicates,
+    thumbnailCpuLimit: state.thumbnailCpuLimit,
+    customText: state.customText,
+    customTextMuted: state.customTextMuted,
+    customAccent: state.customAccent,
+    customBackground: state.customBackground,
+    customBackgroundImage: state.customBackgroundImage,
+    customBackgroundBlur: state.customBackgroundBlur,
+    importFolder: state.importFolder,
+    importAsk: state.importAsk,
+    importBrowserProfile: state.importBrowserProfile,
   };
 }
 
 function paletteOf(state: Settings): CustomPalette {
   return {
-    text: state.custom_text,
-    textMuted: state.custom_text_muted,
-    accent: state.custom_accent,
-    background: state.custom_background,
+    text: state.customText,
+    textMuted: state.customTextMuted,
+    accent: state.customAccent,
+    background: state.customBackground,
   };
 }
 
@@ -101,7 +103,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       prefersDark: window.matchMedia('(prefers-color-scheme: dark)').matches,
       palette: paletteOf(state),
       backgroundUrl: state.backgroundUrl,
-      backgroundBlur: state.custom_background_blur,
+      backgroundBlur: state.customBackgroundBlur,
     });
   },
 
@@ -136,7 +138,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   chooseBackground: async (path) => {
     try {
       const name = await setThemeBackground(path);
-      set({ custom_background_image: name, error: null });
+      set({ customBackgroundImage: name, error: null });
       await refreshBackground(set, get);
     } catch (failure) {
       set({ error: failure instanceof CommandError ? failure.message : String(failure) });
@@ -154,7 +156,7 @@ async function refreshBackground(
   const previous = get().backgroundUrl;
   if (previous) URL.revokeObjectURL(previous);
 
-  if (!get().custom_background_image) {
+  if (!get().customBackgroundImage) {
     set({ backgroundUrl: null });
     get().apply(document.documentElement);
     return;
@@ -162,7 +164,7 @@ async function refreshBackground(
 
   try {
     const bytes = await readThemeBackground();
-    set({ backgroundUrl: URL.createObjectURL(backgroundBlob(bytes, get().custom_background_image ?? '')) });
+    set({ backgroundUrl: URL.createObjectURL(backgroundBlob(bytes, get().customBackgroundImage ?? '')) });
   } catch {
     set({ backgroundUrl: null });
   }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { LibraryLauncher } from './features/launcher/LibraryLauncher';
 import { SettingsModal } from './features/settings/SettingsModal';
 import { LibraryView } from './features/library/LibraryView';
@@ -9,14 +10,19 @@ import { HomeIcon, RefreshIcon, CogIcon } from './components/icons';
 import { useLibraryStore } from './state/libraryStore';
 import { useSettingsStore, watchSystemTheme } from './state/settingsStore';
 import { useScanProgress, useLibraryChanged } from './api/events';
-import { cancelScan, openAssetExternally } from './api/invoke';
-import type { ScanPhase } from './types';
+import { addLibrary, cancelImportBoard, cancelScan, listLibraries, openAssetExternally } from './api/invoke';
+import { CommandError, type ImportProgress, type Library, type ScanPhase } from './types';
 import './index.css';
 
 export default function App() {
   const [booted, setBooted] = useState(false);
   const [viewerId, setViewerId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
+  const [importBoardPath, setImportBoardPath] = useState<string | null>(null);
+  const [importLibraries, setImportLibraries] = useState<Library[]>([]);
+  const [importActionBusy, setImportActionBusy] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const readyMs = useRef(performance.now()).current;
 
   const library = useLibraryStore((state) => state.library);
@@ -39,7 +45,7 @@ export default function App() {
     dismissError,
   } = useLibraryStore();
 
-  const hideDuplicates = useSettingsStore((state) => state.hide_duplicates);
+  const hideDuplicates = useSettingsStore((state) => state.hideDuplicates);
   const loadSettings = useSettingsStore((state) => state.load);
 
   const progress = useScanProgress();
@@ -48,6 +54,70 @@ export default function App() {
     void loadSettings().then(() => setBooted(true));
     return watchSystemTheme();
   }, [loadSettings]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<ImportProgress>('import:progress', (event) => {
+      if (!active) return;
+      const next = event.payload;
+      setImportProgress(next);
+      if (next.phase === 'done') {
+        void listLibraries().then((items) => {
+          if (active) setImportLibraries(items);
+        }).catch(() => {
+          if (active) setImportLibraries([]);
+        });
+      }
+    }).then((dispose) => {
+      if (active) unlisten = dispose;
+      else dispose();
+    }).catch(() => {});
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  const handleImportStarted = useCallback((boardPath: string) => {
+    setImportBoardPath(boardPath);
+    setImportError(null);
+  }, []);
+
+  const handleImportCancel = useCallback(async () => {
+    try {
+      await cancelImportBoard();
+    } catch (failure) {
+      setImportError(CommandError.from(failure).message);
+    }
+  }, []);
+
+  const handleAddImportedLibrary = useCallback(async () => {
+    if (!importBoardPath) return;
+    setImportActionBusy(true);
+    try {
+      const added = await addLibrary(importBoardPath);
+      setImportBoardPath(null);
+      setImportProgress(null);
+      await open(added.id);
+    } catch (failure) {
+      setImportError(CommandError.from(failure).message);
+    } finally {
+      setImportActionBusy(false);
+    }
+  }, [importBoardPath, open]);
+
+  const handleRescanImportLibrary = useCallback(async (libraryId: string) => {
+    setImportActionBusy(true);
+    try {
+      setImportBoardPath(null);
+      setImportProgress(null);
+      await open(libraryId);
+    } finally {
+      setImportActionBusy(false);
+    }
+  }, [open]);
 
   // Fingerprinting continues after the directory walk; clear busy state and refresh duplicate badges on the terminal event.
   const lastPhase = useRef<ScanPhase | null>(null);
@@ -106,7 +176,12 @@ export default function App() {
   return (
     <div className="shell">
       {!library ? (
-        <LibraryLauncher onOpen={(id) => void open(id)} onOpenSettings={() => setSettingsOpen(true)} />
+        <LibraryLauncher
+          onOpen={(id) => void open(id)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          importActive={importProgress?.phase === 'downloading' || importBoardPath !== null}
+          onImportStarted={handleImportStarted}
+        />
       ) : (
         <>
           <header className="shell-bar">
@@ -202,6 +277,44 @@ export default function App() {
 
       {library && <ScanIndicator progress={progress} />}
 
+      {importProgress && (
+        <ImportTaskPanel
+          progress={importProgress}
+          error={importError}
+          onCancel={() => void handleImportCancel()}
+          onDismiss={() => {
+            setImportProgress(null);
+            setImportBoardPath(null);
+            setImportError(null);
+          }}
+        />
+      )}
+
+      {importProgress?.phase === 'done' && importBoardPath && (
+        <ImportFinishedDialog
+          boardPath={importBoardPath}
+          libraries={importLibraries.filter(
+            (registered) => !registered.missing && isWithin(registered.root_path, importBoardPath),
+          )}
+          busy={importActionBusy}
+          onLater={() => {
+            setImportBoardPath(null);
+            setImportProgress(null);
+          }}
+          onAdd={() => void handleAddImportedLibrary()}
+          onRescan={(id) => void handleRescanImportLibrary(id)}
+        />
+      )}
+
+      {importError && (
+        <div className="toast toast-error" role="alert">
+          <span>{importError}</span>
+          <button type="button" onClick={() => setImportError(null)} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
+
       {notice && (
         <div className="toast" role="status">
           <span>{notice}</span>
@@ -232,5 +345,88 @@ export default function App() {
         onOpenExternally={handleOpenExternally}
       />
     </div>
+  );
+}
+
+function isWithin(root: string, child: string): boolean {
+  const normalizedRoot = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedChild = child.replace(/\\/g, '/').replace(/\/+$/, '');
+  return normalizedChild === normalizedRoot || normalizedChild.startsWith(`${normalizedRoot}/`);
+}
+
+function ImportTaskPanel({
+  progress,
+  error,
+  onCancel,
+  onDismiss,
+}: {
+  progress: ImportProgress;
+  error: string | null;
+  onCancel: () => void;
+  onDismiss: () => void;
+}) {
+  const active = progress.phase === 'downloading';
+  const failed = progress.phase === 'failed' || Boolean(error);
+  const label = failed
+    ? error || progress.error || 'Import failed'
+    : progress.phase === 'done'
+      ? 'Board download complete'
+      : progress.phase === 'cancelled'
+        ? 'Import cancelled; downloaded files were kept'
+        : 'Downloading Pinterest board';
+
+  return (
+    <aside className={`import-task${failed ? ' is-failed' : ''}`} role="status" aria-live="polite">
+      <div className="import-task-copy">
+        <strong>{label}</strong>
+        {active && <span>{progress.processed} pins processed</span>}
+        {active && progress.current && <span className="import-task-current">{progress.current}</span>}
+      </div>
+      {active ? (
+        <button type="button" onClick={onCancel}>Cancel</button>
+      ) : (
+        <button type="button" onClick={onDismiss} aria-label="Dismiss import status">×</button>
+      )}
+    </aside>
+  );
+}
+
+function ImportFinishedDialog({
+  boardPath,
+  libraries,
+  busy,
+  onLater,
+  onAdd,
+  onRescan,
+}: {
+  boardPath: string;
+  libraries: Library[];
+  busy: boolean;
+  onLater: () => void;
+  onAdd: () => void;
+  onRescan: (libraryId: string) => void;
+}) {
+  return (
+    <>
+      <button type="button" className="modal-scrim" aria-label="Finish later" onClick={onLater} />
+      <section className="modal new-folder-modal" role="dialog" aria-modal="true" aria-labelledby="import-finished-title">
+        <header className="modal-heading"><h2 id="import-finished-title">Board downloaded</h2></header>
+        <div className="modal-body">
+          <p>{boardPath}</p>
+          <p>Add it as a library, or rescan an existing library that contains it.</p>
+          {libraries.map((registered) => (
+            <p key={registered.id}>
+              <button type="button" onClick={() => onRescan(registered.id)} disabled={busy}>
+                Rescan {registered.name}
+              </button>
+            </p>
+          ))}
+        </div>
+        <footer className="new-folder-actions">
+          <button type="button" onClick={onLater} disabled={busy}>Later</button>
+          <button type="button" className="primary" onClick={onAdd} disabled={busy}>Add as library</button>
+        </footer>
+      </section>
+    </>
   );
 }

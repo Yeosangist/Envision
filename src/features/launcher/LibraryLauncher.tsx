@@ -9,10 +9,13 @@ import {
 } from '../../api/invoke';
 import { CommandError, type Library, type LibrarySummary } from '../../types';
 import { CloseIcon, CogIcon } from '../../components/icons';
+import { ImportBoardModal } from '../import/ImportBoardModal';
 
 export interface LibraryLauncherProps {
   onOpen: (libraryId: string) => void;
   onOpenSettings: () => void;
+  importActive: boolean;
+  onImportStarted: (boardPath: string) => void;
 }
 
 /** "123 images · 3 sections", from the per-library counts. */
@@ -29,13 +32,15 @@ function displayLibraryPath(path: string): string {
   return displayedPath || '~';
 }
 
-export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps) {
+/** Home-screen list of registered image folders. */
+export function LibraryLauncher({ onOpen, onOpenSettings, importActive, onImportStarted }: LibraryLauncherProps) {
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [summaries, setSummaries] = useState<Record<string, LibrarySummary>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [forgetTarget, setForgetTarget] = useState<Library | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -141,7 +146,7 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
           <button type="button" className="primary" onClick={handleAdd} disabled={busy !== null}>
             Add a library
           </button>
-          <button type="button" onClick={() => onOpenSettings()} disabled={busy !== null}>
+          <button type="button" onClick={() => setShowImportModal(true)} disabled={busy !== null || importActive}>
             Import board
           </button>
         </div>
@@ -212,6 +217,11 @@ export function LibraryLauncher({ onOpen, onOpenSettings }: LibraryLauncherProps
           onConfirm={() => void handleForget()}
         />
       )}
+      <ImportBoardModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onStarted={onImportStarted}
+      />
     </div>
   );
 }

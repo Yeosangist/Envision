@@ -7,7 +7,7 @@ A local-first image viewer for desktop. Load folders of images you already have 
 ## Features
 
 - **Libraries.** Point Envision at a folder of images. Nothing is copied, and Envision writes nothing inside it unless you explicitly move a file yourself.
-- **Gallery-dl imports.** Download a board into a chosen destination folder, either with a default path or by prompting every time, then index the imported images as a normal library.
+- **Pinterest board downloads.** Import a board with gallery-dl into a chosen destination, keeping its sections in subfolders. Set a default destination or ask each time, and choose a browser profile for private boards. Downloads run in the background; when one finishes, choose whether to add its folder as a library or rescan an existing library that contains it. gallery-dl must be installed separately and available on `PATH`.
 - **Masonry browsing.** A virtualised, responsive grid with per-folder ordering that persists across restarts.
 - **Reorder by dragging.** Moving an image to a new position in the grid updates the index and touches no files. The order is yours, and it stays yours.
 - **Folder management.** Drag an image onto a folder card to move the file, with collision-safe renaming. Create and rename real directories too.
@@ -18,7 +18,7 @@ A local-first image viewer for desktop. Load folders of images you already have 
 
 ## What it deliberately does not do
 
-- Copy your images anywhere.
+- Copy or move existing library images unless you explicitly move them in Envision. Pinterest imports are a separate, explicit download into the destination you choose; they are not copied into Envision's app data.
 - Automatically reorganise or "tidy" your folders. Folder and image changes happen only when you explicitly make them in Envision.
 - Delete a duplicate for you.
 
@@ -42,6 +42,7 @@ If a duplicate is worth removing, that is your call, in your file manager. What 
 - Node.js 18 or higher
 - Rust and Cargo
 - A C compiler (for building Tauri)
+- `gallery-dl` on `PATH` to import Pinterest boards (optional for other Envision features)
 
 ### Development
 
@@ -109,7 +110,3 @@ Your images are read where they lie. Thumbnail URLs use Tauri's asset protocol i
 Been working on this for a while. First time working with Rust, I chose it for the build size.<br>
 Importing a library for the first time might take a couple of minutes as it generates thumbnails, depending on how good your CPU is. You can limit the CPU usage in the import settings.<br>
 Technically inspired by [Cascade](https://github.com/Yeosangist/Cascade), in that I wanted a broader, more flexible masonry image manager rather than just a viewer.
-
-## To do
-- Add gallery-dl integration
-- Upstream image moving

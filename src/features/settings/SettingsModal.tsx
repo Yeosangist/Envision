@@ -102,13 +102,13 @@ export function SettingsModal({ onClose, readyMs }: SettingsModalProps) {
 
 function AppearanceTab() {
   const theme = useSettingsStore((state) => state.theme);
-  const customText = useSettingsStore((state) => state.custom_text);
-  const customTextMuted = useSettingsStore((state) => state.custom_text_muted);
-  const customAccent = useSettingsStore((state) => state.custom_accent);
-  const customBackground = useSettingsStore((state) => state.custom_background);
-  const backgroundImage = useSettingsStore((state) => state.custom_background_image);
-  const backgroundBlur = useSettingsStore((state) => state.custom_background_blur);
-  const hideDuplicates = useSettingsStore((state) => state.hide_duplicates);
+  const customText = useSettingsStore((state) => state.customText);
+  const customTextMuted = useSettingsStore((state) => state.customTextMuted);
+  const customAccent = useSettingsStore((state) => state.customAccent);
+  const customBackground = useSettingsStore((state) => state.customBackground);
+  const backgroundImage = useSettingsStore((state) => state.customBackgroundImage);
+  const backgroundBlur = useSettingsStore((state) => state.customBackgroundBlur);
+  const hideDuplicates = useSettingsStore((state) => state.hideDuplicates);
   const backgroundUrl = useSettingsStore((state) => state.backgroundUrl);
   const error = useSettingsStore((state) => state.error);
 
@@ -165,22 +165,22 @@ function AppearanceTab() {
             <ColourField
               label="Main text"
               value={customText}
-              onChange={(value) => void set({ custom_text: value })}
+              onChange={(value) => void set({ customText: value })}
             />
             <ColourField
               label="Muted text"
               value={customTextMuted}
-              onChange={(value) => void set({ custom_text_muted: value })}
+              onChange={(value) => void set({ customTextMuted: value })}
             />
             <ColourField
               label="Accent"
               value={customAccent}
-              onChange={(value) => void set({ custom_accent: value })}
+              onChange={(value) => void set({ customAccent: value })}
             />
             <ColourField
               label="Background"
               value={customBackground}
-              onChange={(value) => void set({ custom_background: value })}
+              onChange={(value) => void set({ customBackground: value })}
             />
           </div>
           <p className="settings-hint">
@@ -217,7 +217,7 @@ function AppearanceTab() {
               <span className="settings-field-label">Background blur</span>
               <BlurSlider
                 value={backgroundBlur}
-                onChange={(value) => void set({ custom_background_blur: value })}
+                onChange={(value) => void set({ customBackgroundBlur: value })}
               />
             </div>
           )}
@@ -244,7 +244,7 @@ function AppearanceTab() {
           <input
             type="checkbox"
             checked={hideDuplicates}
-            onChange={(event) => void set({ hide_duplicates: event.target.checked })}
+            onChange={(event) => void set({ hideDuplicates: event.target.checked })}
           />
           <span>
             <span className="settings-toggle-title">Hide duplicates</span>
@@ -344,9 +344,10 @@ function useDeferredCommit<T>(commit: (value: T) => void) {
 }
 
 function ImportTab() {
-  const importFolder = useSettingsStore((state) => state.import_folder);
-  const importAsk = useSettingsStore((state) => state.import_ask);
-  const thumbnailCpuLimit = useSettingsStore((state) => state.thumbnail_cpu_limit);
+  const importFolder = useSettingsStore((state) => state.importFolder);
+  const importAsk = useSettingsStore((state) => state.importAsk);
+  const importBrowserProfile = useSettingsStore((state) => state.importBrowserProfile);
+  const thumbnailCpuLimit = useSettingsStore((state) => state.thumbnailCpuLimit);
   const set = useSettingsStore((state) => state.set);
   const [status, setStatus] = useState<'checking' | 'found' | 'missing'>('checking');
   const cpuOptions = thumbnailCpuOptions(
@@ -368,7 +369,7 @@ function ImportTab() {
   const handleChoose = async () => {
     const picked = await openFileDialog({ directory: true, multiple: false, title: 'Default import folder' });
     if (typeof picked !== 'string') return;
-    await set({ import_folder: picked });
+    await set({ importFolder: picked });
   };
 
   return (
@@ -396,7 +397,7 @@ function ImportTab() {
               <span className="settings-image-name" title={importFolder}>
                 {importFolder}
               </span>
-              <button type="button" onClick={() => void set({ import_folder: null })}>
+              <button type="button" onClick={() => void set({ importFolder: null })}>
                 Clear
               </button>
             </div>
@@ -410,7 +411,7 @@ function ImportTab() {
           <input
             type="checkbox"
             checked={importAsk}
-            onChange={(event) => void set({ import_ask: event.target.checked })}
+            onChange={(event) => void set({ importAsk: event.target.checked })}
           />
           <span>
             <span className="settings-toggle-title">Ask every time</span>
@@ -422,6 +423,27 @@ function ImportTab() {
       </section>
 
       <section className="settings-group">
+        <h3>Authentication</h3>
+        <div className="settings-field">
+          <span className="settings-field-label">Browser profile</span>
+          <select
+            aria-label="Browser profile"
+            value={importBrowserProfile}
+            onChange={(event) => void set({ importBrowserProfile: event.target.value })}
+          >
+            <option value="">None (public boards only)</option>
+            <option value="firefox">Firefox</option>
+            <option value="chrome">Chrome</option>
+            <option value="chromium">Chromium</option>
+          </select>
+        </div>
+        <p className="settings-hint">
+          gallery-dl reads the selected browser&apos;s default profile. Close the browser if its
+          cookie database is locked.
+        </p>
+      </section>
+
+      <section className="settings-group">
         <h3>Performance</h3>
         <div className="settings-field">
           <span className="settings-field-label">Thumbnail CPU limit</span>
@@ -429,7 +451,7 @@ function ImportTab() {
             aria-label="Thumbnail CPU limit"
             value={thumbnailCpuLimit}
             onChange={(event) =>
-              void set({ thumbnail_cpu_limit: Number(event.target.value) })
+              void set({ thumbnailCpuLimit: Number(event.target.value) })
             }
           >
             <option value={0}>All available cores</option>
@@ -459,7 +481,7 @@ function StatsTab({ readyMs }: { readyMs: number }) {
   const [pruned, setPruned] = useState<number | null>(null);
 
   const lastOpenMs = useLibraryStore((state) => state.lastOpenMs);
-  const hideDuplicates = useSettingsStore((state) => state.hide_duplicates);
+  const hideDuplicates = useSettingsStore((state) => state.hideDuplicates);
 
   const refresh = useCallback(async () => {
     setReading(true);

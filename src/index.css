@@ -967,6 +967,59 @@ treatment rather than the default surface colour. */
   background: none;
   padding: 2px 6px;
 }
+
+.import-task {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(390px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.import-task.is-failed {
+  border-color: var(--danger);
+}
+
+.import-task-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.import-task-copy strong,
+.import-task-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-task-copy span {
+  color: var(--text-muted);
+}
+
+.import-task button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 600px) {
+  .import-task {
+    top: auto;
+    right: 8px;
+    bottom: 56px;
+    width: calc(100vw - 16px);
+  }
+}
 /* -- launcher cards -- */
 .launcher-header-row {
   display: flex;

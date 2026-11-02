@@ -78,7 +78,6 @@ pub struct ScanProgress {
     pub library_id: String,
     pub phase: ScanPhase,
     /// Files discovered during the walk (phase 1) or fingerprinted (phase 2).
-    /// Number of pins downloaded or skipped.
     pub processed: u64,
     pub total: u64,
     /// Files added, updated, or removed from the index during the walk.
@@ -86,7 +85,6 @@ pub struct ScanProgress {
     pub updated: u64,
     pub removed: u64,
     pub duplicates: u64,
-    /// Current pin being downloaded, if available.
     pub current: Option<String>,
 }
 
@@ -106,7 +104,6 @@ pub struct AssetPosition {
 }
 
 /// Outcome of moving one or more files between real directories.
-/// Result of validating an import request before starting gallery-dl.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoveResult {
     pub asset_id: i64,
@@ -134,6 +131,8 @@ pub struct Settings {
     pub import_ask: bool,
     /// Maximum number of CPU cores to use for thumbnail generation. `0` means use all available cores.
     pub thumbnail_cpu_limit: i64,
+    /// Browser profile for cookie-based authentication with private boards.
+    pub import_browser_profile: String,
     /// Custom theme colours, `#rrggbb`, read only when `theme` is `custom`.
     pub custom_text: String,
     pub custom_text_muted: String,
@@ -157,6 +156,7 @@ impl Default for Settings {
             import_folder: None,
             import_ask: true,
             thumbnail_cpu_limit: 0,
+            import_browser_profile: String::new(),
             // Seeded from the grey palette: the most common starting point for
             // a custom theme, and a legible one before the user picks anything.
             custom_text: "#ececed".to_string(),
@@ -277,7 +277,90 @@ pub fn library_id_for(root: &Path) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(root.to_string_lossy().as_bytes());
-    hex::encode(&hasher.finalize()[..8])
+    let result = hasher.finalize();
+    hex::encode(result.as_slice())
+}
+
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportPhase {
+    Validating,
+    Downloading,
+    Done,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportProgress {
+    pub phase: ImportPhase,
+    /// Number of pins downloaded or skipped.
+    pub processed: u64,
+    /// Total pins discovered by gallery-dl, if known.
+    pub total: Option<u64>,
+    /// Current pin being downloaded, if available.
+    pub current: Option<String>,
+    /// Error message, if the import failed.
+    pub error: Option<String>,
+}
+
+/// Result of validating an import request before starting gallery-dl.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportValidation {
+    /// Canonical board identifier for archive scoping.
+    pub board_id: String,
+    /// Sanitized board name for the folder.
+    pub board_name: String,
+    /// Parent directory where the board folder will be created.
+    pub parent_path: String,
+    /// Full path to the board folder (parent + board_name, with collision handling).
+    pub board_path: String,
+    /// Whether this is a re-import to an existing folder.
+    pub is_reimport: bool,
+}
+
+/// Browser profile for cookie-based authentication with private boards.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserProfile {
+    /// No cookies; public boards only.
+    #[serde(rename = "none")]
+    NoCookies,
+    /// Firefox profile path.
+    Firefox(String),
+    /// Chrome/Chromium profile path.
+    Chrome(String),
+    /// Chromium-based profile path.
+    Chromium(String),
+}
+
+impl Default for BrowserProfile {
+    fn default() -> Self {
+        BrowserProfile::NoCookies
+    }
+}
+
+impl BrowserProfile {
+    /// Parse a browser profile string from settings.
+    pub fn from_string(value: Option<String>) -> Self {
+        match value.as_deref() {
+            None | Some("") => BrowserProfile::NoCookies,
+            Some(s) => {
+                let parts: Vec<&str> = s.splitn(2, ':').collect();
+                match parts.as_slice() {
+                    ["firefox"] => BrowserProfile::Firefox(String::new()),
+                    ["firefox", path] => BrowserProfile::Firefox(path.to_string()),
+                    ["chrome"] => BrowserProfile::Chrome(String::new()),
+                    ["chrome", path] => BrowserProfile::Chrome(path.to_string()),
+                    ["chromium"] => BrowserProfile::Chromium(String::new()),
+                    ["chromium", path] => BrowserProfile::Chromium(path.to_string()),
+                    _ => BrowserProfile::NoCookies,
+                }
+            }
+        }
+    }
 }
 
 /// Convert a native relative path into the '/'-separated form stored in SQLite.
@@ -327,7 +410,7 @@ mod tests {
 
     #[test]
     fn thumbnail_cpu_limit_is_clamped_and_zero_means_all_cores() {
-        let cases = [(-8, 0), (0, 0), (2, 2), (32, 32), (99, 32)];
+        let cases: [(i64, i64); 4] = [(0, 0), (2, 2), (32, 32), (99, 32)];
 
         for (stored, expected) in cases {
             let settings = Settings {
@@ -346,6 +429,15 @@ mod tests {
                 "normalisation must be idempotent"
             );
         }
+
+        // Negative values are clamped to 0
+        let negative_value: i64 = -8;
+        let settings = Settings {
+            thumbnail_cpu_limit: negative_value,
+            ..Settings::default()
+        }
+        .normalized();
+        assert_eq!(settings.thumbnail_cpu_limit, 0);
     }
 
     /// Regression: legacy `dark` maps to `grey`, and supported theme names survive normalization.

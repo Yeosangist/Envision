@@ -93,22 +93,61 @@ export interface ScanProgress {
   current: string | null;
 }
 
+export type ImportPhase = 'validating' | 'downloading' | 'done' | 'cancelled' | 'failed';
+
+export interface ImportProgress {
+  phase: ImportPhase;
+  processed: number;
+  total?: number;
+  current?: string;
+  error?: string;
+}
+
+export interface ImportValidation {
+  boardId: string;
+  boardName: string;
+  parentPath: string;
+  boardPath: string;
+  isReimport: boolean;
+}
+
 export interface Settings {
+  theme: string;
+  interfaceScale: number;
+  gifAutoplay: boolean;
+  maxPlayingGifs: number;
+  folderCardSize: number;
+  hideDuplicates: boolean;
+  importFolder: string | null;
+  importAsk: boolean;
+  thumbnailCpuLimit: number;
+  importBrowserProfile: string;
+  customText: string;
+  customTextMuted: string;
+  customAccent: string;
+  customBackground: string;
+  customBackgroundImage: string | null;
+  customBackgroundBlur: number;
+}
+
+/** Settings payload serialized by Rust using its snake_case field names. */
+export interface SettingsDto {
   theme: string;
   interface_scale: number;
   gif_autoplay: boolean;
   max_playing_gifs: number;
   folder_card_size: number;
   hide_duplicates: boolean;
+  import_folder: string | null;
+  import_ask: boolean;
+  thumbnail_cpu_limit: number;
+  import_browser_profile: string;
   custom_text: string;
   custom_text_muted: string;
   custom_accent: string;
   custom_background: string;
   custom_background_image: string | null;
   custom_background_blur: number;
-  import_folder: string | null;
-  import_ask: boolean;
-  thumbnail_cpu_limit: number;
 }
 
 /** Per-library counts shown on the home screen. */

@@ -19,6 +19,5 @@ coverage/
 .idea
 .DS_Store
 
-
 *.db-wal
 *.db-shm

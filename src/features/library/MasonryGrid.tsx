@@ -36,7 +36,7 @@ interface TileProps {
 }
 
 function Tile({ asset, libraryId, thumbnailRevision, selected, onOpen, onToggleSelect }: TileProps) {
-  const hideDuplicates = useSettingsStore((state) => state.hide_duplicates);
+  const hideDuplicates = useSettingsStore((state) => state.hideDuplicates);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: asset.id,
   });

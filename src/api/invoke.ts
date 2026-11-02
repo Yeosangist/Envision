@@ -13,6 +13,7 @@ import {
   ReorderResult,
   ScanReport,
   Settings,
+  SettingsDto,
   Stats,
 } from '../types';
 
@@ -48,6 +49,8 @@ export const relinkLibrary = (libraryId: string, path: string) =>
 export const scanLibrary = () => call<ScanReport>('scan_library');
 
 export const cancelScan = () => call<void>('cancel_scan');
+
+export const cancelImportBoard = () => call<void>('cancel_import_board');
 
 
 // --- folders and assets ----------------------------------------------------
@@ -93,11 +96,54 @@ export const listDuplicates = () => call<DuplicateGroup[]>('list_duplicates');
 export const duplicateSummary = () => call<DuplicateSummary>('duplicate_summary');
 
 
-export const getSettings = () => call<Settings>('get_settings');
+// --- settings --------------------------------------------------------------
+function settingsFromDto(settings: SettingsDto): Settings {
+  return {
+    theme: settings.theme,
+    interfaceScale: settings.interface_scale,
+    gifAutoplay: settings.gif_autoplay,
+    maxPlayingGifs: settings.max_playing_gifs,
+    folderCardSize: settings.folder_card_size,
+    hideDuplicates: settings.hide_duplicates,
+    importFolder: settings.import_folder,
+    importAsk: settings.import_ask,
+    thumbnailCpuLimit: settings.thumbnail_cpu_limit,
+    importBrowserProfile: settings.import_browser_profile,
+    customText: settings.custom_text,
+    customTextMuted: settings.custom_text_muted,
+    customAccent: settings.custom_accent,
+    customBackground: settings.custom_background,
+    customBackgroundImage: settings.custom_background_image,
+    customBackgroundBlur: settings.custom_background_blur,
+  };
+}
+
+function settingsToDto(settings: Settings): SettingsDto {
+  return {
+    theme: settings.theme,
+    interface_scale: settings.interfaceScale,
+    gif_autoplay: settings.gifAutoplay,
+    max_playing_gifs: settings.maxPlayingGifs,
+    folder_card_size: settings.folderCardSize,
+    hide_duplicates: settings.hideDuplicates,
+    import_folder: settings.importFolder,
+    import_ask: settings.importAsk,
+    thumbnail_cpu_limit: settings.thumbnailCpuLimit,
+    import_browser_profile: settings.importBrowserProfile,
+    custom_text: settings.customText,
+    custom_text_muted: settings.customTextMuted,
+    custom_accent: settings.customAccent,
+    custom_background: settings.customBackground,
+    custom_background_image: settings.customBackgroundImage,
+    custom_background_blur: settings.customBackgroundBlur,
+  };
+}
+
+export const getSettings = async () => settingsFromDto(await call<SettingsDto>('get_settings'));
 export const checkGalleryDl = () => call<boolean>('check_gallery_dl');
 
-export const updateSettings = (settings: Settings) =>
-  call<Settings>('update_settings', { settings });
+export const updateSettings = async (settings: Settings) =>
+  settingsFromDto(await call<SettingsDto>('update_settings', { settings: settingsToDto(settings) }));
 
 /** Set or clear the background image and return its basename. */
 export const setThemeBackground = (path: string | null) =>

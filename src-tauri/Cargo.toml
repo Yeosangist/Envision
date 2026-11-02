@@ -6,12 +6,8 @@ authors = ["you"]
 edition = "2021"
 
 
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-
-
-
 name = "envision_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -36,7 +32,8 @@ chrono = "0.4"
 tauri-plugin-log = "2"
 log = "0.4"
 rayon = "1.10"
-
+url = "2"
+dirs = "5"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
