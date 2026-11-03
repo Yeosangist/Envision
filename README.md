@@ -1,5 +1,7 @@
 # Envision
 
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/Yeosangist/Envision/total?style=flat&color=0a0)
+
 A local-first image viewer for desktop. Load folders of images you already have and see them in a responsive masonry grid you can rearrange freely.
 
 ![](Assets/example.png)
