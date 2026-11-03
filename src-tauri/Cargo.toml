@@ -1,8 +1,8 @@
 [package]
 name = "envision"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "1.0.0"
+description = "A masonry image viewer and manager with gallery-dl integration."
+authors = ["Yeosangist"]
 edition = "2021"
 
 
