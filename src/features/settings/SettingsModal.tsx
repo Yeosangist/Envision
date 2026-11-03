@@ -650,13 +650,9 @@ const FAQ: { title: string; items: { q: string; a: string }[] }[] = [
         a: "The library is flagged as broken. Use Relink to point it at the new location without losing order or fingerprints."
       },
       {
-        q: "How do I rename a sub-folder?",
-        a: "Use the 'Rename' button in the folder card. This updates the display name in Envision without changing the folder on disk."
+        q: "Can I rename a folder inside Envision?",
+        a: "Yup. Hover the card and click the pencil button. This updates the display name in Envision without changing the folder on disk."
       },
-      {
-        q: "Why can't I rename a root folder inside Envision?",
-        a: "Because images and sub-folders stored under root are all tied to it."
-      }
     ],
   },
   {
