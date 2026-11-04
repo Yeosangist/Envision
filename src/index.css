@@ -348,7 +348,11 @@ the bar keeps one baseline, and labelled through `aria-label` instead. */
 }
 
 .library-empty {
-  padding: 48px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
   text-align: center;
   color: var(--text-muted);
 }

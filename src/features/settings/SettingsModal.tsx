@@ -660,7 +660,7 @@ const FAQ: { title: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: "Does Envision ever write inside my image folders?",
-        a: "Only when you explicitly move an image between folders or create/rename a folder. Scanning, hashing, thumbnails, and ordering live in app data.",
+        a: "Only when you explicitly move an image between folders or create a folder. Scanning, hashing, thumbnails, and ordering live in app data.",
       },
       {
         q: "Does reordering the grid move files?",

@@ -129,6 +129,8 @@ export function Lightbox({
     (event: React.PointerEvent) => {
       lastPressWasPrimary.current = event.button === 0;
       if (event.button !== 0) return;
+      // Don't capture pointer if clicking on interactive elements
+      if ((event.target as HTMLElement).closest('button')) return;
       const viewport = viewportRef.current;
       if (!viewport) return;
       const rect = viewport.getBoundingClientRect();

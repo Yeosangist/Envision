@@ -25,6 +25,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
             let app_db = commands::open_app_db(&handle)?;
