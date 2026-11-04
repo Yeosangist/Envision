@@ -341,7 +341,7 @@ function RenameFolderDialog({ folder, onClose, onRename }: RenameFolderDialogPro
             placeholder="Enter a folder name"
             disabled={saving}
           />
-          <p className="settings-hint">Renamed only inside Envision; files on disk are not moved.</p>
+          <p className="settings-hint">Renamed only inside Envision; files on disk are not affected.</p>
         </div>
         <footer className="new-folder-actions">
           <button type="button" onClick={onClose} disabled={saving}>

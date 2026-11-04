@@ -1010,17 +1010,16 @@ treatment rather than the default surface colour. */
 
 .import-task {
   position: fixed;
-  top: 72px;
-  right: 16px;
+  bottom: 20px;
+  right: 20px;
   z-index: 45;
   display: flex;
   align-items: center;
   gap: 14px;
-  width: min(390px, calc(100vw - 32px));
+  width: min(300px, calc(100vw - 32px));
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
   box-shadow: var(--shadow);
 }
 
@@ -1037,8 +1036,7 @@ treatment rather than the default surface colour. */
   font-size: 12px;
 }
 
-.import-task-copy strong,
-.import-task-current {
+.import-task-copy strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

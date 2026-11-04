@@ -99,7 +99,6 @@ export interface ImportProgress {
   phase: ImportPhase;
   processed: number;
   total?: number;
-  current?: string;
   error?: string;
 }
 

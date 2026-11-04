@@ -295,12 +295,10 @@ pub enum ImportPhase {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportProgress {
     pub phase: ImportPhase,
-    /// Number of pins downloaded or skipped.
+    /// Number of files downloaded this run.
     pub processed: u64,
     /// Total pins discovered by gallery-dl, if known.
     pub total: Option<u64>,
-    /// Current pin being downloaded, if available.
-    pub current: Option<String>,
     /// Error message, if the import failed.
     pub error: Option<String>,
 }

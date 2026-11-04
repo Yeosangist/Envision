@@ -379,8 +379,7 @@ function ImportTaskPanel({
     <aside className={`import-task${failed ? ' is-failed' : ''}`} role="status" aria-live="polite">
       <div className="import-task-copy">
         <strong>{label}</strong>
-        {active && <span>{progress.processed} pins processed</span>}
-        {active && progress.current && <span className="import-task-current">{progress.current}</span>}
+        {active && <span>{progress.processed} pins downloaded</span>}
       </div>
       {active ? (
         <button type="button" onClick={onCancel}>Cancel</button>

@@ -340,6 +340,40 @@ impl ImportTaskState {
     }
 }
 
+/// What a line of gallery-dl's piped stdout means for download counting.
+///
+/// With `--option output.mode=pipe`, gallery-dl prints one line per file it
+/// processes:
+/// - `<path>` — the file was downloaded during this run
+/// - `# <path>` — the file was skipped (already in the download archive or on disk)
+///
+/// Everything else (including blank lines) is ignored for counting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GalleryDlLine {
+    /// A file fetched this run.
+    Downloaded(String),
+    /// A file skipped because it already exists / was archived.
+    Skipped(String),
+    /// Unrecognized or empty output.
+    Other,
+}
+
+/// Classify one line of gallery-dl's piped stdout.
+pub fn classify_gallery_dl_line(line: &str) -> GalleryDlLine {
+    let line = line.trim_end_matches(['\n', '\r']);
+    if line.trim().is_empty() {
+        return GalleryDlLine::Other;
+    }
+    if let Some(path) = line.strip_prefix("# ") {
+        let path = path.trim_end();
+        if path.is_empty() {
+            return GalleryDlLine::Other;
+        }
+        return GalleryDlLine::Skipped(path.to_string());
+    }
+    GalleryDlLine::Downloaded(line.to_string())
+}
+
 /// Build gallery-dl command arguments for a Pinterest board import.
 pub fn build_gallery_dl_args(
     url: &str,
@@ -359,6 +393,10 @@ pub fn build_gallery_dl_args(
         "0.5-1.5".to_string(),
         "--sleep-429".to_string(),
         "60".to_string(),
+        // Force the line-oriented pipe output so progress counting cannot be
+        // silently disabled by a user's gallery-dl config (e.g. output.mode=false).
+        "--option".to_string(),
+        "output.mode=pipe".to_string(),
         // Keep ordinary pins at the board root and place section pins beneath their section title.
         "--option".to_string(),
         "extractor.pinterest.board.directory=[]".to_string(),
@@ -388,19 +426,47 @@ pub fn run_gallery_dl(
 ) -> Result<(), ImportError> {
     let args = build_gallery_dl_args(url, output_dir, archive_path, browser_profile);
 
-    let mut child = std::process::Command::new("gallery-dl")
+    let mut child = match std::process::Command::new("gallery-dl")
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|_| ImportError::GalleryDlUnavailable)?;
+    {
+        Ok(child) => child,
+        Err(error) => {
+            // Surface the failure in the UI instead of leaving the panel stuck
+            // on "Downloading" with no terminal event.
+            let message = format!("gallery-dl could not be started: {error}");
+            let _ = progress_sender.send(ImportProgress {
+                phase: ImportPhase::Failed,
+                processed: 0,
+                total: None,
+                error: Some(message),
+            });
+            return Err(ImportError::GalleryDlUnavailable);
+        }
+    };
+
+    // Drain stderr on its own thread so a chatty gallery-dl cannot block on a
+    // full pipe buffer. stderr carries gallery-dl's logging; the download
+    // paths we care about come through stdout.
+    if let Some(stderr) = child.stderr.take() {
+        thread::spawn(move || {
+            let reader = std::io::BufReader::new(stderr);
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => log::debug!("gallery-dl: {line}"),
+                    Err(_) => break,
+                }
+            }
+        });
+    }
 
     // Send initial progress
     let _ = progress_sender.send(ImportProgress {
         phase: ImportPhase::Downloading,
         processed: 0,
         total: None,
-        current: None,
         error: None,
     });
 
@@ -420,7 +486,6 @@ pub fn run_gallery_dl(
                 phase: ImportPhase::Cancelled,
                 processed: handle.get_processed(),
                 total: None,
-                current: None,
                 error: None,
             });
             return Ok(());
@@ -428,17 +493,24 @@ pub fn run_gallery_dl(
 
         match line {
             Ok(line) => {
-                // Parse gallery-dl output for progress
-                // gallery-dl outputs: "[#...] Downloading image #123..."
-                if line.contains("Downloading") {
-                    handle.increment_processed();
-                    let _ = progress_sender.send(ImportProgress {
-                        phase: ImportPhase::Downloading,
-                        processed: handle.get_processed(),
-                        total: None,
-                        current: Some(line.clone()),
-                        error: None,
-                    });
+                // gallery-dl's piped stdout (output.mode=pipe) prints one line
+                // per file: the bare path for downloads, '# '-prefixed for
+                // skips. Skips are already-downloaded files and do not count.
+                match classify_gallery_dl_line(&line) {
+                    GalleryDlLine::Downloaded(path) => {
+                        handle.increment_processed();
+                        log::debug!("gallery-dl: downloaded {path}");
+                        let _ = progress_sender.send(ImportProgress {
+                            phase: ImportPhase::Downloading,
+                            processed: handle.get_processed(),
+                            total: None,
+                            error: None,
+                        });
+                    }
+                    GalleryDlLine::Skipped(path) => {
+                        log::debug!("gallery-dl: skipped {path}");
+                    }
+                    GalleryDlLine::Other => {}
                 }
             }
             Err(_) => break,
@@ -452,7 +524,6 @@ pub fn run_gallery_dl(
             phase: ImportPhase::Done,
             processed: handle.get_processed(),
             total: None,
-            current: None,
             error: None,
         });
         Ok(())
@@ -462,7 +533,6 @@ pub fn run_gallery_dl(
             phase: ImportPhase::Failed,
             processed: handle.get_processed(),
             total: None,
-            current: None,
             error: Some(error_msg.clone()),
         });
         Err(ImportError::Io(std::io::Error::new(
@@ -595,6 +665,44 @@ mod tests {
             pair == ["--cookies-from-browser", "firefox"]
         }));
         assert!(!args.iter().any(|arg| arg == "--cookies"));
+    }
+
+    #[test]
+    fn classify_gallery_dl_line_recognizes_downloads_and_skips() {
+        assert_eq!(
+            classify_gallery_dl_line("/tmp/board/123_456.jpg\n"),
+            GalleryDlLine::Downloaded("/tmp/board/123_456.jpg".to_string())
+        );
+        // Section subfolders are still plain downloads.
+        assert_eq!(
+            classify_gallery_dl_line("/tmp/board/Some Section/12_34.jpg"),
+            GalleryDlLine::Downloaded("/tmp/board/Some Section/12_34.jpg".to_string())
+        );
+        // A '#' inside the path (not at the start) is not a skip marker.
+        assert_eq!(
+            classify_gallery_dl_line("/tmp/board/a # b/12_34.jpg"),
+            GalleryDlLine::Downloaded("/tmp/board/a # b/12_34.jpg".to_string())
+        );
+        // '# '-prefixed lines are skips (already in the archive / on disk).
+        assert_eq!(
+            classify_gallery_dl_line("# /tmp/board/123_456.jpg\n"),
+            GalleryDlLine::Skipped("/tmp/board/123_456.jpg".to_string())
+        );
+        assert_eq!(classify_gallery_dl_line(""), GalleryDlLine::Other);
+        assert_eq!(classify_gallery_dl_line("   \n"), GalleryDlLine::Other);
+        assert_eq!(classify_gallery_dl_line("# \n"), GalleryDlLine::Other);
+    }
+
+    #[test]
+    fn command_arguments_force_pipe_output() {
+        let args = build_gallery_dl_args(
+            "https://pinterest.com/user/board/",
+            Path::new("/tmp/board"),
+            Path::new("/tmp/archive.txt"),
+            &BrowserProfile::default(),
+        );
+
+        assert!(args.windows(2).any(|pair| pair == ["--option", "output.mode=pipe"]));
     }
 
     #[test]

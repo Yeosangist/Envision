@@ -387,7 +387,7 @@ function RenameLibraryDialog({ library, onCancel, onConfirm }: RenameLibraryDial
             placeholder="Enter a library name"
             disabled={saving}
           />
-          <p className="settings-hint">Renamed only inside Envision; the folder on disk is not moved.</p>
+          <p className="settings-hint">Renamed only inside Envision; the folder on disk is not affected.</p>
         </div>
         <footer className="new-folder-actions">
           <button type="button" onClick={onCancel} disabled={saving}>
